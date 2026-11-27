@@ -127,6 +127,7 @@
   .card .tags{position:absolute;top:.5rem;left:.5rem;display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;z-index:1}
   .card .tags span{background:var(--grad);color:#fff;font-weight:800;font-size:.7rem;letter-spacing:.04em;padding:.15rem .45rem;border-radius:.4rem;box-shadow:0 2px 6px rgba(0,0,0,.45)}
   .card .tags .lat{background:#14915a}
+  .card .tags .nep{background:#e8a317;color:#1a1200}
   .spot-logo{display:block;max-width:26rem;max-height:7.5rem;width:auto;height:auto;object-fit:contain;object-position:left bottom;filter:drop-shadow(0 .3rem 1rem rgba(0,0,0,.6))}
   .spot .kick .lat{color:#3ee08f}
   /* Pantallas bajas (proyectores de 480-600 px de alto): portada más baja para que el logo y la primera fila quepan juntos */
@@ -1408,12 +1409,47 @@ function chCard(c, list, i) {
   b.onclick = () => { playChannel(list[i], list); goFull(); };
   return b;
 }
+// ---------- Nuevos episodios de tus series: ya salieron, van después del último que viste y se estrenaron hace menos de 3 semanas ----------
+async function newEpisodes() {
+  const ser = Object.values(S.watch || {}).filter((w) => w.ep && w.it && okItem(w.it)).sort((a, b) => b.at - a.at).slice(0, 12);
+  const now = Date.now(), recent = now - 21 * 864e5, out = [];
+  await Promise.all(ser.map(async (w) => {
+    try {
+      const d = await withTimeout(getDetail(w.it), 9000);
+      const we = w.ep, after = (v) => { const s = v.season ?? 1, e = v.episode || v.number || 0; return s > we.s || (s === we.s && e > we.e) || (w.next && s === we.s && e === we.e); };
+      const rel = (v) => Date.parse(v.released || v.firstAired || '') || 0;
+      const nuevos = (d._videos || []).filter((v) => (v.season ?? 1) > 0 && rel(v) && rel(v) <= now && after(v));
+      if (nuevos.length && nuevos.some((v) => rel(v) >= recent)) out.push({it: w.it, n: nuevos.length, at: Math.max(...nuevos.map(rel))});
+    } catch (e) {}
+  }));
+  return out.sort((a, b) => b.at - a.at);
+}
+function newEpsRow(rows, spot) {
+  if (!Object.values(S.watch || {}).some((w) => w.ep)) return;
+  const r = makeRow('Nuevos episodios de tus series'); r.hidden = true;
+  const cont = [...rows.children].find((x) => /Continuar viendo/.test(x.textContent.slice(0, 40)));
+  if (cont) rows.insertBefore(r, cont.nextSibling); else rows.prepend(r);   // justo después de Continuar viendo
+  newEpisodes().then((l) => {
+    if (!l.length) return r.remove();
+    r._strip.replaceChildren(...l.map(({it, n}) => {
+      const c = mediaCard(it, spot), pi = c.querySelector('.pi');
+      let tg = pi.querySelector('.tags'); if (!tg) { tg = el('div', 'tags'); pi.append(tg); }
+      tg.prepend(el('span', 'nep', n > 1 ? n + ' EPISODIOS NUEVOS' : 'EPISODIO NUEVO'));
+      return c;
+    }));
+    r.hidden = false;
+  }).catch(() => r.remove());
+}
 // ---------- Top 10: se intercalan los primeros de cada plataforma del catálogo "Streaming Catalogs" (región México) ----------
 async function top10List() {
   const cata = (S.servers || []).find((x) => x.kind === 'addon' && (/netflix-catalog|streaming-catalog/i.test(x.url || '') || /streaming catalogs/i.test((x.manifest && x.manifest.name) || '')));
   if (!cata) return [];
   if (!cata.manifest) await readManifest(cata).catch(() => {});
-  const cats = ((cata.manifest && cata.manifest.catalogs) || []).filter((c) => (c.type === 'movie' || c.type === 'series') && !c.required);
+  const all = ((cata.manifest && cata.manifest.catalogs) || []).filter((c) => (c.type === 'movie' || c.type === 'series') && !c.required);
+  // Primero el Top 10 oficial de Netflix México; si no está, lo más popular de cada plataforma
+  const mx = all.filter((c) => /^netflix-top10-MX$/i.test(c.id));
+  const cats = mx.length ? mx : all.filter((c) => !/^netflix-top10/i.test(c.id));
+  top10List.official = !!mx.length;
   const lists = await Promise.all(cats.map((c) => addonList(cata, c).catch(() => [])));
   const out = [], seen = new Set();
   for (let i = 0; out.length < 10 && i < 30; i++) for (const l of lists) { const y = l[i]; if (y && !seen.has(keyOf(y))) { seen.add(keyOf(y)); out.push(y); if (out.length >= 10) break; } }
@@ -1525,9 +1561,14 @@ function buildHome() {
   const live = (title, list) => { if (!list.length || !tvOn()) return; const r = makeRow(title); r._strip.replaceChildren(...list.map((c, i) => chCard(c, list, i))); rows.append(r); };
   const cont = Object.values(S.watch || {}).sort((a, b) => b.at - a.at).map((w) => w.it).filter(okItem);
   if (cont.length) { const r = makeRow('Continuar viendo'); r._strip.replaceChildren(...cont.map((it) => mediaCard(it, spot))); rows.append(r); }
+  if (!isKids()) newEpsRow(rows, spot);
   if (!isKids()) {   // Top 10: lo más popular hoy en México en Netflix, Disney+, Prime, Apple TV+ y HBO Max
-    const tr = makeRow('Top 10 en México hoy'); tr._strip.replaceChildren(...skeleton(6)); rows.append(tr);
-    top10List().then((l) => { if (!l.length) return tr.remove(); tr._strip.replaceChildren(...l.map((it, i) => topCard(it, i, spot))); }).catch(() => tr.remove());
+    const tr = makeRow('Top 10 de Netflix en México'); tr._strip.replaceChildren(...skeleton(6)); rows.append(tr);
+    top10List().then((l) => {
+      if (!l.length) return tr.remove();
+      if (!top10List.official) tr.querySelector('h3').firstChild.textContent = 'Lo más popular en streaming';
+      tr._strip.replaceChildren(...l.map((it, i) => topCard(it, i, spot)));
+    }).catch(() => tr.remove());
   }
   if ((S.lib || []).length) { const r = makeRow('Mi lista'); r._strip.replaceChildren(...S.lib.map((it) => mediaCard(it, spot))); rows.append(r); }
   live('Seguir viendo · En vivo', S.recents);
@@ -1850,13 +1891,22 @@ async function addonList(a, c, extra) {
   return (j.metas || []).filter((m) => m.poster || m.name).map((m) => ({...fromStremio(m, mapType(m.type || c.type), 'addon'), addon: a.id, stype: m.type || c.type})).filter(okItem);
 }
 const catKey = (a, c) => a.id + '|' + c.type + '|' + c.id;
+// Nombres de catálogos en español (los de Netflix México y Kitsu vienen en inglés)
+const CAT_ES = {'netflix top 10 movies (mx)': 'Top 10 películas de Netflix México', 'netflix top 10 shows (mx)': 'Top 10 series de Netflix México',
+  'kitsu trending': 'Anime en tendencia', 'kitsu top airing': 'Anime en emisión', 'kitsu most popular': 'Anime más popular', 'kitsu highest rated': 'Anime mejor calificado'};
+function catTitle(a, c) {
+  const n = (c.name || 'Catálogo').trim(), es = CAT_ES[n.toLowerCase()];
+  if (es) return es;
+  const src = (a.manifest.name || a.name || '').replace(/^Anime Kitsu$/i, 'Kitsu');
+  return n + (src ? ' · ' + src : '');
+}
 function addonRows(types) {
-  const max = (NATIVE || document.body.classList.contains('phone')) ? (types ? 8 : 6) : 10;
+  const max = (NATIVE || document.body.classList.contains('phone')) ? (types ? 12 : 6) : 14;
   const hid = new Set(S.hideCats || []);
   return addonCats(types).filter(({a, c}) => !hid.has(catKey(a, c))).slice(0, max).map(({a, c}) => {
     const load = () => addonList(a, c);
     if (c.skip !== false) load.pager = (n) => addonList(a, c, 'skip=' + n);   // si el servidor no pagina, se detecta por repetidos
-    return {title: (c.name || 'Catálogo') + ' · ' + (a.manifest.name || a.name), load};
+    return {title: catTitle(a, c), load};
   });
 }
 async function refreshAddons() {
@@ -2085,7 +2135,7 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   if (ep) setTimeout(() => warmNext(x, ep), 20000);
   window.LZ.play(JSON.stringify({title: label, ep: !!ep, sleepAt: sleepAt || 0, sub, subLang, audioLang: S.audioEs === false ? '' : 'es', start: Math.floor(startAt || 0), opts: opts.slice(0, 30).map((s) => {
     const h = s.behaviorHints?.proxyHeaders?.request || {};
-    return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || ''};
+    return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || '', es: esAudio(s)};
   })}));
 }
 window.lzPick = (pos) => {
@@ -2191,9 +2241,19 @@ async function addSubtitles(ctx) {
   await Promise.allSettled(subAddons().map(async (a) => { const j = await withTimeout(J(addonBase(a) + '/subtitles/' + ctx.type + '/' + g(ctx.id) + '.json'), 12000); (j.subtitles || []).forEach((s) => s.url && all.push({...s, addon: a.name})); }));
   if (vodCtx !== ctx) return;
   vodSubList = all;
-  if (!S.subLang || vodSub) return;
-  const pref = all.filter((s) => (s.lang || '').startsWith(S.subLang.slice(0, 2)) || (S.subLang === 'spa' && /^(spa|es|spn|lat)/.test(s.lang || '')));
-  for (const sub of pref.slice(0, 3)) if (await loadSub(sub, true)) return;
+  autoSub();
+}
+// Subtítulos automáticos: con audio latino/español no se ponen (siguen en la lista para elegirlos);
+// con otro idioma se pone el de tu idioma. Se vuelve a decidir si la app cambia de opción.
+const esAudio = (s) => !!s && ['lat', 'es'].includes(streamInfo(s).lang);
+async function autoSub() {
+  if (!S.subLang || !vodSubList || pvMode !== 'vod') return;
+  if (!vodCur) { clearTimeout(autoSub.t); autoSub.t = setTimeout(autoSub, 800); return; }   // espera a saber qué opción suena
+  if (S.subLang === 'spa' && esAudio(vodCur)) { if (vodSub && vodSub.auto) { vodSub = null; applySub(); } return; }
+  if (vodSub) return;
+  const ctx = vodCtx;
+  const pref = vodSubList.filter((s) => (s.lang || '').startsWith(S.subLang.slice(0, 2)) || (S.subLang === 'spa' && /^(spa|es|spn|lat)/.test(s.lang || '')));
+  for (const sub of pref.slice(0, 3)) if (vodCtx === ctx && await loadSub(sub, true)) { if (vodSub) vodSub.auto = true; return; }
 }
 async function loadSub(sub, quiet) {
   try {
@@ -2998,7 +3058,7 @@ function toFF(au) {
   ffReload(t, au);
 }
 async function afterStart(s, sess) {
-  vodCur = s;
+  vodCur = s; autoSub();
   // Segunda revisión: si a los 4 s no se ha decodificado nada de audio, se convierte
   setTimeout(() => {
     if (sess !== vodSess || vodCur !== s || vodFF || !PROXY_FF || video.paused) return;
@@ -3769,7 +3829,7 @@ window.lzUpdProgress = (p) => {
 // ---------------- LZ-SHARE: cada quien con su propia cuenta de AllDebrid ----------------
 // No hay códigos ni archivos en GitHub: cada aparato se configura con la cuenta de AllDebrid de su dueño.
 // Los servidores vienen listos; los que necesitan la clave (Torrentio y Comet) se arman con la tuya.
-const SHARE_FIJOS = [{"name": "CATA", "url": "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/bmZ4LGRucCxhbXAsYXRwLGhibTo6OjE3OTU2NzQ4NzQ3Nzk6MDowOk1Y/manifest.json"}, {"name": "SUB", "url": "https://opensubtitles-v3.strem.io/manifest.json"}, {"name": "CINE", "url": "https://v3-cinemeta.strem.io/manifest.json"}, {"name": "OpenSubtitles PRO", "url": "https://opensubtitlesv3-pro.dexter21767.com/eyJsYW5ncyI6WyJzcGFuaXNoLWxhIiwic3BhbmlzaCIsImVuZ2xpc2giXSwic291cmNlIjoiYWxsIiwiYWlUcmFuc2xhdGVkIjp0cnVlLCJhdXRvQWRqdXN0bWVudCI6dHJ1ZX0=/manifest.json"}, {"name": "SPORTS", "url": "https://nuviosports.xyz/eyJ0aW1lem9uZSI6IkFtZXJpY2EvTWV4aWNvX0NpdHkifQ/manifest.json"}];
+const SHARE_FIJOS = [{"name": "CATA", "url": "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/bmZ4LGRucCxhbXAsYXRwLGhibSxwbXAsY3J1OjpNWDoxNzk1Njc0ODc0Nzc5OjA6MTpNWA==/manifest.json"}, {"name": "SUB", "url": "https://opensubtitles-v3.strem.io/manifest.json"}, {"name": "CINE", "url": "https://v3-cinemeta.strem.io/manifest.json"}, {"name": "OpenSubtitles PRO", "url": "https://opensubtitlesv3-pro.dexter21767.com/eyJsYW5ncyI6WyJzcGFuaXNoLWxhIiwic3BhbmlzaCIsImVuZ2xpc2giXSwic291cmNlIjoiYWxsIiwiYWlUcmFuc2xhdGVkIjp0cnVlLCJhdXRvQWRqdXN0bWVudCI6dHJ1ZX0=/manifest.json"}, {"name": "SPORTS", "url": "https://nuviosports.xyz/eyJ0aW1lem9uZSI6IkFtZXJpY2EvTWV4aWNvX0NpdHkifQ/manifest.json"}];
 const TORRENTIO_OPC = 'sort=qualitysize|language=spanish,latino|qualityfilter=brremux,dolbyvision,threed,4k,other,scr,cam,unknown|debridoptions=nodownloadlinks,nocatalog';
 const COMET_BASE = 'https://cometfortheweebs.midnightignite.me', COMET_OPC = {"maxResultsPerResolution": 5, "maxSize": 16106127360, "cachedOnly": true, "sortCachedUncachedTogether": false, "removeTrash": true, "resultFormat": ["all"], "debridServices": [], "enableTorrent": false, "deduplicateStreams": true, "scrapeDebridAccountTorrents": false, "debridStreamProxyPassword": "", "languages": {"required": ["es", "la"], "allowed": ["es", "la"], "exclude": [], "preferred": ["es", "la"]}, "resolutions": {"r2160p": false, "r1440p": false, "r360p": false, "r240p": false, "unknown": false}, "options": {"remove_ranks_under": -10000000000, "allow_english_in_languages": true, "remove_unknown_languages": true}};
 const b64utf = (t) => btoa(unescape(encodeURIComponent(t)));
@@ -3960,6 +4020,15 @@ function startApp() {
 }
 profInit(); applyProfile();
 if (S.langOnly == null) { S.langOnly = true; save(); }   // LZ-SHARE: solo opciones en tu idioma cuando existan
+// Aparatos ya configurados: CATA con las plataformas nuevas y el Top 10 de Netflix México (una sola vez)
+(function shareUpgrade() {
+  if (!S.servers || !S.servers.length) return;
+  let ch = false;
+  const fij = (re) => SHARE_FIJOS.find((x) => re.test(x.url));
+  const cata = S.servers.find((x) => /netflix-catalog/.test(x.url || '')), nc = fij(/netflix-catalog/);
+  if (cata && nc && cata.url !== nc.url && !S.cataUp) { cata.url = nc.url; delete cata.manifest; ch = true; }
+  S.cataUp = true; if (ch) save();
+})();
 if (debridKey()) startApp(); else shareSetup();
 setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) focusEl($('clist').querySelector('.chrow.on') || $('clist').querySelector('.chrow') || document.querySelector('.nav.on')); }, 3500);
 </script>

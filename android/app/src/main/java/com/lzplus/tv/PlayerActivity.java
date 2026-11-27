@@ -19,6 +19,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -44,6 +45,8 @@ public class PlayerActivity extends Activity {
     private ExoPlayer player;
     private PlayerView view;
     private JSONArray opts = new JSONArray();
+    // Subtítulos automáticos: si el audio que suena es español/latino no se muestran; si es otro idioma, sí
+    private boolean subDecided = false, optEs = false;
     private int index = 0;
     private String sub, subLang;
     private long startMs = 0;
@@ -130,11 +133,32 @@ public class PlayerActivity extends Activity {
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED && !ended) { ended = true; finish(); }   // terminó: la app ofrece el siguiente episodio
             }
+
+            @Override
+            public void onTracksChanged(Tracks tracks) {
+                if (subDecided || !autoSubs()) return;
+                for (Tracks.Group g : tracks.getGroups()) {
+                    if (g.getType() != C.TRACK_TYPE_AUDIO || !g.isSelected()) continue;
+                    for (int k = 0; k < g.length; k++) {
+                        if (!g.isTrackSelected(k)) continue;
+                        String l = g.getTrackFormat(k).language;
+                        boolean es = optEs || (l != null && l.toLowerCase().matches("^(es|spa|lat|la)([-_].*)?$"));
+                        subDecided = true;
+                        setSubsOn(!es);
+                        return;
+                    }
+                }
+            }
         });
         view.requestFocus();
         playIndex(0);
         handler.postDelayed(introCheck, 1000);
         Toast.makeText(this, "Botón ≡ o mantén OK: cambiar idioma o calidad", Toast.LENGTH_LONG).show();
+    }
+
+    private boolean autoSubs() { return sub != null && sub.length() > 0 && subLang != null && (subLang.startsWith("es") || subLang.startsWith("spa")); }
+    private void setSubsOn(boolean on) {
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !on).build());
     }
 
     private void playIndex(int i) {
@@ -154,6 +178,9 @@ public class PlayerActivity extends Activity {
         String url = o.optString("url", "");
         String ua = o.optString("ua", "");
         String ref = o.optString("ref", "");
+        optEs = o.optBoolean("es", false);
+        subDecided = false;
+        if (autoSubs()) setSubsOn(!optEs);   // decisión inicial con la etiqueta de la opción; se confirma con el audio real
 
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setUserAgent(ua.length() > 0 ? ua : VLC_UA)
