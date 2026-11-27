@@ -132,6 +132,13 @@
   /* Pantallas bajas (proyectores de 480-600 px de alto): portada más baja para que el logo y la primera fila quepan juntos */
   @media (max-height:620px){body:not(.phone) .spot{height:58vh;min-height:0}body:not(.phone) .spot .in{padding-bottom:3rem;gap:.55rem}body:not(.phone) .rows{margin-top:-1.6rem}body:not(.phone) .view.cat .rows{margin-top:-1.6rem}body:not(.phone) .spot-logo{max-height:4.6rem;max-width:20rem}body:not(.phone) .spot p{-webkit-line-clamp:2;font-size:1.05rem}body:not(.phone) .spot h1{font-size:3rem}}
   body.phone .spot-logo{max-width:14rem;max-height:4.5rem}
+  .people{gap:1.4rem}
+  .person{flex:none;width:7.6rem;display:flex;flex-direction:column;align-items:center;gap:.55rem;text-align:center}
+  .pph{position:relative;width:6.6rem;height:6.6rem;border-radius:50%;overflow:hidden;background:linear-gradient(135deg,#2a1d4f,#3b1d5c);display:grid;place-items:center;box-shadow:0 .3rem 1rem rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.08)}
+  .pph span{font-weight:800;font-size:1.6rem;color:#cbbcff;letter-spacing:.04em}
+  .pph img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center 20%}
+  .pn{font-size:.9rem;font-weight:700;color:#DDE3EE;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  body.phone .person{width:5.6rem}body.phone .pph{width:4.8rem;height:4.8rem}body.phone .pph span{font-size:1.2rem}
   .card .ok-b{position:absolute;left:.5rem;bottom:.5rem;background:rgba(10,40,24,.88);color:var(--ok);font-weight:800;font-size:.75rem;padding:.2rem .5rem;border-radius:.4rem}
   .card .badge-r{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.75);color:var(--accent);font-weight:800;font-size:.8rem;padding:.2rem .5rem;border-radius:.4rem}
   .card.wide{width:17rem}.card.wide .pi{aspect-ratio:16/9}
@@ -1430,6 +1437,31 @@ function moreCard(title, items, pager) {
 // Revisa si se puede ver solo cuando la carátula aparece en pantalla (no cientos a la vez)
 const cardIO = window.IntersectionObserver ? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting && e.target._chk) { const f = e.target._chk; e.target._chk = null; cardIO.unobserve(e.target); f(); } }), {rootMargin: '250px'}) : null;
 function watchCard(card, run) { if (cardIO) { card._chk = run; cardIO.observe(card); } else run(); }
+// ---------- Reparto con fotos: de TMDB si se usa; si no, la foto principal de Wikipedia (gratis, sin clave) ----------
+// Solo se usa la foto si la página describe a un actor o actriz (para no poner la de otra persona con el mismo nombre)
+const PERSON_OK = /actor|actress|comedian|performer|presenter|singer|rapper|musician|model|filmmaker|director|screenwriter|voice|wrestler|actriz|cantante|presentador/i;
+async function personPhoto(name) {
+  for (const lang of ['en', 'es']) {
+    try {
+      const j = await J('https://' + lang + '.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(name.replace(/ /g, '_')), 8000);
+      if (j && j.type !== 'disambiguation' && j.thumbnail && j.thumbnail.source && PERSON_OK.test((j.description || '') + ' ' + (j.extract || '').slice(0, 200))) return j.thumbnail.source;
+    } catch (e) {}
+  }
+  return null;
+}
+function castRow(x) {
+  const r = el('div', 'row'); r.append(el('h3', 'disp', 'Reparto'));
+  const st = el('div', 'strip people');
+  x.cast.forEach((name) => {
+    const c = el('div', 'person'), ph = el('div', 'pph');
+    ph.append(el('span', null, name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()));
+    c.append(ph, el('span', 'pn', name));
+    st.append(c);
+    const put = (u) => { if (!u) return; const i = img(u, name, () => i.remove()); ph.append(i); };
+    if (x.castPh && x.castPh[name]) put(x.castPh[name]); else personPhoto(name).then(put);
+  });
+  r.append(st); return r;
+}
 function makeRow(title, sub) {
   const r = el('div', 'row'); const h = el('h3', 'disp', title); if (sub) h.append(el('small', null, sub));
   const s = el('div', 'strip'); s.append(...skeleton());
@@ -1652,7 +1684,6 @@ async function openDetail(it) {
   if (x.trailer) btns.append(btn('btn', 'Ver tráiler', () => playTrailer(x.trailer, x.title)));
   btns.append(lb);
   inn.replaceChildren(title, meta, el('p', null, x.overview || 'Sin descripción.'));
-  if (x.cast?.length) inn.append(el('div', 'cast', 'Reparto: ' + x.cast.join(', ')));
   inn.append(btns);
   const rows = el('div', 'det-rows'); d.append(rows);
   if (x.seasons?.length) {
@@ -1676,6 +1707,7 @@ async function openDetail(it) {
     rows.append(sr, epRow);
     pick(cur);
   }
+  if (x.cast?.length) rows.append(castRow(x));
   similarRows(x, rows);
   setTimeout(() => focusEl(play), 30);
 }
@@ -1747,7 +1779,7 @@ async function getDetail(it) {
     return {...it, title: d.title || d.name || it.title, overview: d.overview || it.overview, backdrop: IMG(d.backdrop_path, 'w1280') || it.backdrop,
       year: (d.release_date || d.first_air_date || '').slice(0, 4), rating: d.vote_average ? d.vote_average.toFixed(1) : it.rating,
       runtime: d.runtime ? Math.floor(d.runtime / 60) + ' h ' + (d.runtime % 60) + ' min' : d.number_of_seasons ? d.number_of_seasons + (d.number_of_seasons > 1 ? ' temporadas' : ' temporada') : '',
-      genres: (d.genres || []).map((x) => x.name), cast: (d.credits?.cast || []).slice(0, 6).map((c) => c.name), trailer,
+      genres: (d.genres || []).map((x) => x.name), cast: (d.credits?.cast || []).slice(0, 10).map((c) => c.name), castPh: (d.credits?.cast || []).slice(0, 10).reduce((o, c) => { if (c.profile_path) o[c.name] = 'https://image.tmdb.org/t/p/w185' + c.profile_path; return o; }, {}), trailer,
       imdb: d.external_ids?.imdb_id || d.imdb_id || null, seasons, firstEp: seasons?.length ? {s: seasons[0].n, e: 1} : null,
       similar: (d.recommendations?.results || []).filter((r) => r.poster_path).slice(0, 20).map((r) => fromTmdb(r, it.type === 'anime' ? 'anime' : null, r.media_type || it.mt))};
   }
@@ -1763,7 +1795,7 @@ async function getDetail(it) {
   const seasons = vids.length ? sn.map((n) => ({n, name: 'Temporada ' + n})) : null;
   return {...it, title: m.name || it.title, overview: m.description || it.overview, backdrop: m.background || it.backdrop, logo: m.logo || null,
     year: String(m.releaseInfo || m.year || it.year || '').slice(0, 4), rating: m.imdbRating || it.rating, runtime: m.runtime || '',
-    genres: (m.genres || []).map((x) => GEN_ES[x] || x), cast: (m.cast || []).slice(0, 6),
+    genres: (m.genres || []).map((x) => GEN_ES[x] || x), cast: (m.cast || []).slice(0, 10),
     trailer: m.trailerStreams?.[0]?.ytId || m.trailers?.[0]?.source || null,
     imdb: String(it.id).startsWith('tt') ? it.id : m.imdb_id || null, kitsu: String(it.id).startsWith('kitsu:') ? it.id : null,
     seasons, firstEp: seasons ? {s: seasons[0].n, e: 1} : null, _videos: vids};
