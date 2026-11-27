@@ -1,0 +1,144 @@
+name: Compilar LZ-PLUS para Android TV
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['configs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Copiar la app web dentro del APK (compatible con TVs viejas)
+        run: |
+          npm install --no-save --no-audit --no-fund esbuild@0.28.2
+          node tools/preparar-tv.js lz-plus.html android/app/src/main/assets/index.html
+          sed -i "s/__LZ_VERSION__/${{ github.run_number }}/g" android/app/src/main/assets/index.html
+          curl -sSfL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o android/app/src/main/assets/hls.min.js
+          sed -i 's#https://cdn.jsdelivr.net/npm/hls.js@1#hls.min.js#' android/app/src/main/assets/index.html
+
+      - name: Llave de firma (secreto privado del repositorio)
+        env:
+          KS: ${{ secrets.LZ_KEYSTORE }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/lz-plus.p12; echo "Usando la llave fija"; else echo "Sin llave fija: se usa una temporal"; fi
+
+      - name: Compilar APK
+        working-directory: android
+        env:
+          LZ_KEY_PASS: ${{ secrets.LZ_KEY_PASS }}
+        run: gradle assembleDebug --no-daemon
+
+      - name: Renombrar
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk LZ-PLUS.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LZ-PLUS-apk
+          path: LZ-PLUS.apk
+
+      - name: Publicar descarga directa
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          target_commitish: ${{ github.sha }}
+          name: LZ-PLUS v${{ github.run_number }}
+          body: |
+            apk-version: ${{ github.run_number }}
+            Android TV (app Downloader): https://github.com/${{ github.repository }}/releases/latest/download/LZ-PLUS.apk
+            Windows: LZ-PLUS-Windows-instalador.exe (o la versión portátil)
+          files: LZ-PLUS.apk
+          make_latest: true
+
+  windows:
+    needs: apk
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Preparar la app de Windows
+        shell: bash
+        run: |
+          cp lz-plus.html lz-servidor.js windows/
+          sed -i "s/__LZ_VERSION__/${{ github.run_number }}/g" windows/lz-plus.html
+          cd windows
+          npm install --no-audit --no-fund
+
+      - name: Compilar instalador y versión portátil
+        working-directory: windows
+        run: npx electron-builder --win --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LZ-PLUS-Windows
+          path: |
+            windows/dist/LZ-PLUS-Windows-instalador.exe
+            windows/dist/LZ-PLUS-Windows-portable.exe
+
+      - name: Publicar descarga directa
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: LZ-PLUS v${{ github.run_number }}
+          body: |
+            apk-version: ${{ github.run_number }}
+            win-version: ${{ github.run_number }}
+            Android TV (app Downloader): https://github.com/${{ github.repository }}/releases/latest/download/LZ-PLUS.apk
+            Windows: LZ-PLUS-Windows-instalador.exe (o la versión portátil)
+          files: |
+            windows/dist/LZ-PLUS-Windows-instalador.exe
+            windows/dist/LZ-PLUS-Windows-portable.exe
+
+  # Versión para iPhone (y cualquier celular): página instalable en GitHub Pages
+  web:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar la página
+        run: |
+          mkdir -p _site
+          sed "s/__LZ_VERSION__/${{ github.run_number }}/g" lz-plus.html > _site/index.html
+          cp web/* _site/
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  web-publicar:
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,36 @@
+{
+  "name": "lz-share",
+  "productName": "LZ-SHARE",
+  "version": "1.0.0",
+  "description": "LZ-SHARE para Windows",
+  "main": "main.js",
+  "author": "LZ-SHARE",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lzshare.windows",
+    "productName": "LZ-SHARE",
+    "files": ["main.js", "lz-plus.html", "lz-servidor.js", "icon.png"],
+    "asarUnpack": ["node_modules/ffmpeg-static/**"],
+    "directories": { "output": "dist" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LZ-SHARE",
+      "artifactName": "LZ-SHARE-Windows-instalador.exe"
+    },
+    "portable": { "artifactName": "LZ-SHARE-Windows-portable.exe" }
+  }
+}
