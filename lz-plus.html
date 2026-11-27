@@ -1643,7 +1643,7 @@ async function openDetail(it) {
   openDetail.warmT = setTimeout(() => { if (detData !== x || $('det').hidden) return; const v = vodId(x, w ? (w.ep || x.firstEp) : x.firstEp); if (v && v.id) warmOne(v.type, v.id); }, 600);
   const play = w && (w.t > 20 || w.next)
     ? btn('btn pri', w.next ? '▶  Ver T' + w.ep.s + ' E' + w.ep.e : '▶  Continuar ' + (w.ep ? 'T' + w.ep.s + ' E' + w.ep.e + ' · ' : '') + fmt(w.t), () => playVod(x, w.ep || x.firstEp, w.t))
-    : btn('btn pri', '▶  Reproducir', () => playVod(x, x.firstEp));
+    : btn('btn pri', x.firstEp && x.firstEp.s != null ? '▶  Ver T' + x.firstEp.s + ' E' + x.firstEp.e : '▶  Reproducir', () => playVod(x, x.firstEp));
   play.dataset.auto = '1';
   btns.append(play);
   if (w && w.t > 20) btns.append(btn('btn', 'Desde el inicio', () => playVod(x, w.ep || x.firstEp, 0)));
@@ -1658,13 +1658,23 @@ async function openDetail(it) {
   if (x.seasons?.length) {
     const sr = el('div', 'row'); const chips = el('div', 'chips'); chips.style.padding = '0 3rem';
     const epRow = makeRow('Episodios');
-    x.seasons.forEach((s, i) => chips.append(btn('chip' + (i === 0 ? ' on' : ''), s.name || 'Temporada ' + s.n, async (ev) => {
-      chips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === ev.currentTarget));
+    // Pestañas de temporada: la ficha abre en la que estás viendo; al moverte con ⬅ ➡ los episodios cambian solos
+    const we = w && w.ep, cur = Math.max(0, we ? x.seasons.findIndex((s) => s.n === we.s) : 0);
+    let shown = -1;
+    const pick = (i) => {
+      if (i === shown) return; shown = i; const s = x.seasons[i];
+      chips.querySelectorAll('.chip').forEach((c, j) => c.classList.toggle('on', j === i));
+      const h = epRow.querySelector('h3'); if (h) h.firstChild.textContent = 'Episodios · ' + (s.name || 'Temporada ' + s.n);
       loadEps(x, s.n, epRow);
-    })));
-    sr.append(el('h3', 'disp', 'Temporadas'), chips);
+    };
+    x.seasons.forEach((s, i) => {
+      const c = btn('chip', s.name || 'Temporada ' + s.n, () => pick(i));
+      c.addEventListener('focus', () => { clearTimeout(pick.t); pick.t = setTimeout(() => { if (document.activeElement === c) pick(i); }, 450); });
+      chips.append(c);
+    });
+    sr.append(el('h3', 'disp', x.seasons.length > 1 ? x.seasons.length + ' temporadas' : 'Temporada'), chips);
     rows.append(sr, epRow);
-    loadEps(x, x.seasons[0].n, epRow);
+    pick(cur);
   }
   similarRows(x, rows);
   setTimeout(() => focusEl(play), 30);
