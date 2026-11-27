@@ -46,6 +46,9 @@ class InlinePlayer {
     private int index = 0;
     private long optAt = 0;
     boolean active = false;
+    private int bad = 0;   // veces seguidas que el video no quedó donde se pidió
+
+    private Runnable checkRect = new Runnable() { public void run() {} };
 
     private final Runnable watchdog = new Runnable() {
         public void run() {
@@ -155,11 +158,29 @@ class InlinePlayer {
         view.requestLayout();
         if (view.getVisibility() != View.VISIBLE) view.setVisibility(View.VISIBLE);
         web.evaluateJavascript("window.lzInlineDbg && lzInlineDbg('" + x + "," + y + " " + w + "x" + h + " de " + W + "x" + H + "')", null);
+        // Revisión: ya acomodado, ¿quedó donde se pidió? Si no (dos veces seguidas), la app usa el modo anterior
+        final int ex = x, ey = y, ew = w, eh = h;
+        handler.removeCallbacks(checkRect);
+        checkRect = new Runnable() {
+            public void run() {
+                if (view == null || !active || view.getVisibility() != View.VISIBLE) return;
+                int[] a = new int[2], b = new int[2];
+                view.getLocationOnScreen(a); root.getLocationOnScreen(b);
+                int rx = a[0] - b[0], ry = a[1] - b[1], tol = 12;
+                boolean ok = Math.abs(rx - ex) <= tol && Math.abs(ry - ey) <= tol && Math.abs(view.getWidth() - ew) <= tol && Math.abs(view.getHeight() - eh) <= tol;
+                if (ok) { bad = 0; return; }
+                web.evaluateJavascript("window.lzInlineDbg && lzInlineDbg('quedó en " + rx + "," + ry + " " + view.getWidth() + "x" + view.getHeight() + "')", null);
+                if (++bad >= 2) { bad = 0; js("badrect"); }
+                else handler.postDelayed(this, 600);
+            }
+        };
+        handler.postDelayed(checkRect, 500);
     }
 
     void stop() {
         active = false;
         handler.removeCallbacks(watchdog);
+        handler.removeCallbacks(checkRect);
         if (player != null) { player.stop(); player.clearMediaItems(); }
         if (view != null) view.setVisibility(View.INVISIBLE);
     }

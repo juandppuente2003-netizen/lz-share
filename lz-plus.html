@@ -2660,7 +2660,7 @@ const nativeChannel = (c) => { inlineStop(); window.LZ.play(JSON.stringify({titl
 // ---------- Tele: TV en vivo con el reproductor de la app dentro de la vista previa ----------
 // Se ve igual que antes, pero el video lo reproduce Android (abre más canales, manda las cabeceras que piden
 // y no sale en negro). Va detrás de la página: el nombre del canal, mensajes y la lista se ven encima.
-var INLINE = NATIVE && !!(window.LZ && window.LZ.inlinePlay);
+var INLINE = NATIVE && !!(window.LZ && window.LZ.inlinePlay);   // después de cargar la configuración se apaga si S.inlineOff (esta pantalla usa el modo anterior)
 var inlineOn = false, inlineCh = null, inlineFail = null, inlineLast = '', inlineTick = 0;   // var: se pueden usar antes de que cargue todo
 function inlineRect() {
   if (!inlineOn) return;
@@ -2695,6 +2695,11 @@ window.lzInline = (st) => {
   if (st === 'playing') { if (curCh === c) msg(''); if (!c.ad && chState(c) !== true) setCh(c, true); }
   else if (st === 'fail') { const f = inlineFail; inlineStop(); if (curCh === c && f) f(); }
   else if (st === 'resume') { if (curCh === c && pvMode === 'live') playChannel(c, liveList); }
+  else if (st === 'badrect') {   // Android no pudo acomodar el video en el cuadro en esta pantalla: modo anterior y se recuerda
+    S.inlineOff = true; INLINE = false; save(); inlineStop(); logErr('Vista previa: esta pantalla no acomoda el video; se usa el modo anterior');
+    toast('Vista previa: en esta pantalla se usará el modo anterior (Ajustes → Vista previa de TV en vivo)', 7000);
+    if (curCh === c && pvMode === 'live') playChannel(c, liveList);
+  }
 };
 function playChannel(c, list) {
   if (S.lastCh !== c.url) { S.lastCh = c.url; clearTimeout(playChannel.t); playChannel.t = setTimeout(save, 1500); }
@@ -3224,6 +3229,15 @@ function buildSettings() {
     chips([['prev', 'Último canal en la vista previa'], ['full', 'Último canal en pantalla completa']], S.startFull ? 'full' : 'prev', (k) => { S.startFull = k === 'full'; save(); toast('Guardado'); }),
     el('p', 'note', 'La app siempre arranca con el último canal que viste.'));
   w.append(bSt);
+  if (NATIVE && window.LZ && window.LZ.inlinePlay) {
+    const bIv = el('div', 'box'); bIv.append(el('h2', 'disp', 'Vista previa de TV en vivo'),
+      chips([['app', 'Reproductor de la app (recomendado)'], ['web', 'Modo anterior (navegador interno)']], S.inlineOff ? 'web' : 'app', (k) => {
+        S.inlineOff = k === 'web'; INLINE = !S.inlineOff; save(); toast('Guardado');
+        if (pvMode === 'live' && curCh) { inlineStop(); playChannel(curCh, liveList); }
+      }),
+      el('p', 'note', 'El reproductor de la app abre más canales. Si en tu pantalla el video no queda dentro del cuadro, la app cambia sola al modo anterior.'));
+    w.append(bIv);
+  }
   const b2 = el('div', 'box'); b2.append(el('h2', 'disp', 'Idioma de subtítulos'), chips(SUBS, S.subLang, (k) => { S.subLang = k; save(); toast('Guardado'); }),
     el('p', 'note', 'Se activan solos al ver una película o serie si tienes un complemento de subtítulos configurado.'));
   w.append(b2);
@@ -3355,6 +3369,7 @@ function buildSettings() {
 //  Arranque
 // =====================================================================
 load();
+if (S.inlineOff) INLINE = false;
 function applyScreen() { phoneMode(); const r = document.documentElement.style; r.setProperty('--ui', S.ui || 1); r.setProperty('--safe', (S.safe || 0) + 'vh'); }
 applyScreen();
 addEventListener('resize', phoneMode);
