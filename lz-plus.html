@@ -1001,6 +1001,12 @@ function nav(dir) {
   if (!cur || cur === document.body || !sc.contains(cur) || cur === pv) { const a = sc.querySelector('[data-auto]'); focusEl(a && visible(a) ? a : firstContent(list)); return; }
   // Del menú hacia la derecha: regresa a donde estabas en la pantalla
   if (cur.closest('#rail') && dir === 'right') { const v = $('v-' + view); const last = v && v._last; focusEl(last && visible(last) && v.contains(last) ? last : firstContent(list)); return; }
+  // En el menú, ▲ ▼ solo recorren el menú (en orden, sin brincar al contenido); en las puntas se queda quieto
+  if (cur.closest('#rail') && (dir === 'up' || dir === 'down')) {
+    const navs = [...document.querySelectorAll('#rail .nav')].filter(visible), i = navs.indexOf(cur);
+    const nx = navs[i + (dir === 'down' ? 1 : -1)];
+    if (i >= 0) { if (nx) focusEl(nx); return; }
+  }
   const r = cur.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   let best = null, bs = Infinity;
   const inRail = !!cur.closest('#rail');
