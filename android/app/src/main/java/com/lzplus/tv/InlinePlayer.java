@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.TextureView;
 import android.view.View;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
@@ -13,13 +14,13 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
-import androidx.media3.ui.PlayerView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.HashMap;
@@ -37,7 +38,9 @@ class InlinePlayer {
     private final FrameLayout root;
     private final WebView web;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private PlayerView view;
+    private FrameLayout view;              // caja negra del tamaño del cuadro de la vista previa
+    private AspectRatioFrameLayout fit;    // conserva la forma del video dentro de la caja
+    private TextureView tex;               // superficie normal: se mueve y cambia de tamaño como cualquier vista
     private ExoPlayer player;
     private JSONArray opts = new JSONArray();
     private int index = 0;
@@ -57,21 +60,23 @@ class InlinePlayer {
 
     private void ensure() {
         if (player != null) return;
-        view = new PlayerView(act);
-        view.setUseController(false);
+        view = new FrameLayout(act);
+        view.setBackgroundColor(Color.BLACK);
         view.setFocusable(false);
         view.setFocusableInTouchMode(false);
-        view.setShutterBackgroundColor(Color.BLACK);
-        view.setBackgroundColor(Color.BLACK);
-        view.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         view.setVisibility(View.INVISIBLE);
+        fit = new AspectRatioFrameLayout(act);
+        fit.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        tex = new TextureView(act);
+        fit.addView(tex, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        view.addView(fit, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(1, 1, Gravity.TOP | Gravity.START);
         root.addView(view, 0, lp);   // índice 0: detrás del WebView
         DefaultRenderersFactory renderers = new DefaultRenderersFactory(act)
                 .setEnableDecoderFallback(true)
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
         player = new ExoPlayer.Builder(act, renderers).build();
-        view.setPlayer(player);
+        player.setVideoTextureView(tex);
         player.addListener(new Player.Listener() {
             @Override
             public void onPlayerError(PlaybackException error) { if (active) next(); }
@@ -79,6 +84,11 @@ class InlinePlayer {
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 if (isPlaying && active) { handler.removeCallbacks(watchdog); js("playing"); }
+            }
+
+            @Override
+            public void onVideoSizeChanged(VideoSize vs) {
+                if (vs.width > 0 && vs.height > 0) fit.setAspectRatio(vs.width * vs.pixelWidthHeightRatio / vs.height);
             }
 
             @Override
@@ -142,7 +152,9 @@ class InlinePlayer {
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
         lp.width = w; lp.height = h; lp.leftMargin = x; lp.topMargin = y; lp.gravity = Gravity.TOP | Gravity.START;
         view.setLayoutParams(lp);
+        view.requestLayout();
         if (view.getVisibility() != View.VISIBLE) view.setVisibility(View.VISIBLE);
+        web.evaluateJavascript("window.lzInlineDbg && lzInlineDbg('" + x + "," + y + " " + w + "x" + h + " de " + W + "x" + H + "')", null);
     }
 
     void stop() {
@@ -154,7 +166,7 @@ class InlinePlayer {
 
     void release() {
         stop();
-        if (player != null) { player.release(); player = null; }
+        if (player != null) { player.clearVideoTextureView(tex); player.release(); player = null; }
         if (view != null) { root.removeView(view); view = null; }
     }
 

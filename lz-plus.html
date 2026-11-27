@@ -2688,6 +2688,8 @@ function inlineStop() {
   document.body.classList.remove('inl');
   try { window.LZ.inlineStop(); } catch (e) {}
 }
+// Registro para Ajustes → Diagnóstico: dónde puso Android el video y qué cuadro le pidió la página
+window.lzInlineDbg = (t) => { const r = $('pv').getBoundingClientRect(); const m = 'Vista previa: Android ' + t + ' · página ' + innerWidth + 'x' + innerHeight + ' · cuadro ' + [r.left, r.top, r.width, r.height].map(Math.round).join(','); if (m !== lzInlineDbg.last) { lzInlineDbg.last = m; logErr(m); } };
 window.lzInline = (st) => {
   const c = inlineCh; if (!c || !inlineOn) return;
   if (st === 'playing') { if (curCh === c) msg(''); if (!c.ad && chState(c) !== true) setCh(c, true); }
