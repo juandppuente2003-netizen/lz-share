@@ -39,6 +39,14 @@
   .nav.on{color:#fff;background:var(--grad)}.nav.on svg{color:#fff}
   .nav:focus{background:var(--grad);color:#fff}.nav:focus svg{color:#fff}
   .rail-sp{flex:1}
+  /* Menú angosto (solo iconos) mientras navegas el contenido; se abre encima del contenido al volver a él */
+  body:not(.phone) #app{position:relative}
+  body:not(.phone) #rail{position:absolute;top:0;left:0;bottom:0;z-index:30;box-shadow:1.2rem 0 3rem rgba(0,0,0,.65)}
+  body:not(.phone) main{margin-left:5.8rem}
+  body.mini:not(.phone) #rail{width:5.8rem;padding:1.8rem .75rem;box-shadow:none}
+  body.mini:not(.phone) .nav{justify-content:center;padding:0;gap:0}
+  body.mini:not(.phone) .nav span{display:none}
+  body.mini:not(.phone) .blogo{max-width:4.3rem;min-height:2.8rem}
 
   main{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;position:relative}
   main::-webkit-scrollbar{width:0}
@@ -1074,6 +1082,13 @@ function goBack() {
   else if (NATIVE) confirmBox('¿Salir de LZ-SHARE?', 'Puedes volver cuando quieras desde el inicio de tu TV.', 'Salir', () => window.LZ.exit());
 }
 window.lzBack = () => goBack();
+// Menú lateral: angosto mientras el foco está en el contenido; con nombres al estar en el menú
+const railMini = (on) => document.body.classList.toggle('mini', on);
+railMini(true);
+document.addEventListener('focusin', (e) => railMini(!(e.target && e.target.closest && e.target.closest('#rail'))));
+$('rail').addEventListener('mouseenter', () => railMini(false));
+$('rail').addEventListener('mouseleave', () => { const a = document.activeElement; if (!a || !a.closest || !a.closest('#rail')) railMini(true); });
+document.querySelectorAll('#rail .nav').forEach((n) => { const t = n.querySelector('span'); if (t && !n.title) n.title = t.textContent; });
 
 // =====================================================================
 //  Secciones
