@@ -208,6 +208,12 @@
   .opt.cur{outline:2px solid var(--accent)}
   #yt,#yt iframe{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;border:0}
   #yt:empty{display:none}
+  #ffbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.8rem;padding:1.4rem 1.4rem 1rem;background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:6;opacity:0;transition:opacity .3s;pointer-events:none}
+  #ffbar.on{opacity:1;pointer-events:auto}
+  #ffbar[hidden]{display:none}
+  #ffbar input{flex:1;accent-color:var(--accent);height:1.2rem;cursor:pointer}
+  #ffbar button{background:none;border:0;color:#fff;font-size:1.5rem;cursor:pointer;width:2.4rem}
+  #ffbar span{font-variant-numeric:tabular-nums;color:#DDE3EE;font-weight:700;min-width:4.6em;text-align:center}
   .gsetup{max-width:44rem;text-align:center}.gsetup .note{margin:.5rem 0}.gsetup input{width:100%;margin:.6rem 0;font-size:1.2rem}.gsetup .btns{justify-content:center;margin-top:.8rem}.gsetup .gurl{color:var(--accent);margin:.3rem 0}.gsetup .gcode{letter-spacing:.3em}
   .pv-msg{position:absolute;top:0;right:0;bottom:0;left:0;display:grid;place-items:center;text-align:center;padding:2rem;color:#D3DAE7;font-size:1.25rem;background:rgba(0,0,0,.5)}
   .pv-msg .btns{justify-content:center}
@@ -459,6 +465,7 @@
           <div class="slot" id="slot" tabindex="0" title="OK: pantalla completa">
             <div id="pv" tabindex="-1">
               <video id="video" playsinline></video>
+              <div id="ffbar" hidden><button type="button" id="ffPlay" title="Pausa / seguir">⏸</button><span id="ffCur">0:00</span><input type="range" id="ffRange" min="0" max="1" step="1" value="0" title="Adelantar o regresar"><span id="ffDur">--:--</span></div>
               <div id="yt"></div>
               <div class="pv-msg" id="pvMsg">Elige un canal</div>
               <div class="osd" id="osd"><span class="lg" id="osdLogo"></span><div><div class="num" id="osdNum"></div><h2 class="disp" id="osdName"></h2><p id="osdInfo"></p><p id="osdEpg" class="oepg"></p></div></div><button type="button" class="skipi" id="skipIntro" hidden>OK · Saltar intro ⏭</button>
@@ -1738,7 +1745,9 @@ function streamInfo(s) {
   const q = /2160p|\b4k\b|uhd/.test(l) ? '4K' : /1080p/.test(l) ? '1080p' : /720p/.test(l) ? '720p' : /480p|360p|\bsd\b/.test(l) ? 'SD' : '';
   const gb = parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*gb/) || [])[1] || 0) || (parseFloat((l.match(/(\d+(?:[.,]\d+)?)\s*mb/) || [])[1] || 0) / 1024);
   // Torrentio + debrid: [AD+] = ya está lista; [AD download] = todavía no (no reproduce hasta que el debrid la descarga)
-  const ready = /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)\+\]/.test(l) ? true : /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)[ _-]?download\]|\bdownload\]/.test(l) ? false : null;
+  // MediaFusion y Comet: ⚡ = ya está en AllDebrid · ⏳ / ⬇ = todavía no (en la tele se quitan si hay opciones listas)
+  const ready = /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)\+\]/.test(l) ? true : /\[(ad|rd|pm|dl|tb|oc|ed|pp|pk)[ _-]?download\]|\bdownload\]/.test(l) ? false
+    : /⏳|⬇/.test(d) ? false : /⚡/.test(d) ? true : null;
   const heavy = /\b(dv|dovi|dolby ?vision)\b/.test(l) ? 2 : /hevc|x265|h\.?265|10 ?bit|\bhdr/.test(l) ? 1 : 0;
   return (s._i = {lang, q, gb, ready, heavy});
 }
@@ -2764,7 +2773,7 @@ function ffReload(t, au) {
   msg('Cargando…', null, true);
   video.onplaying = () => msg('');
   video.src = ffUrl(vodFF.u, vodFF.h, vodFF.v, vodFF.offset, vodFF.au); video.play().catch(() => {});
-  applySub();
+  applySub(); syncFFBar(); showFFBar();
 }
 // Pasar un video que se ve directo a modo convertido (para poder elegir audio)
 function toFF(au) {
@@ -2811,6 +2820,31 @@ function ffSeek(delta) {
     ffReload(t);
   }, 800);
 }
+// Barra propia para videos convertidos (FFmpeg): la del navegador solo conoce lo ya convertido
+// (dice 0:30 y va creciendo) y no deja adelantar. Esta usa la duración real y salta pidiendo desde ese segundo.
+let ffDrag = false, ffBarT = 0;
+function syncFFBar() {
+  const on = pvMode === 'vod' && !!vodFF, bar = $('ffbar');
+  if (bar.hidden === on) { bar.hidden = !on; if (pvMode === 'vod') video.controls = !on; if (on) showFFBar(); }
+  if (!on) return;
+  const d = vodFF.dur || 0, t = ffTarget ?? curTime(), r = $('ffRange');
+  r.disabled = !d; r.max = Math.max(1, Math.floor(d));
+  if (!ffDrag) { r.value = Math.floor(t); $('ffCur').textContent = fmt(t); }
+  $('ffDur').textContent = d ? fmt(d) : 'calculando…';
+  $('ffPlay').textContent = video.paused ? '▶' : '⏸';
+}
+function showFFBar() {
+  const bar = $('ffbar'); if (bar.hidden) return;
+  bar.classList.add('on'); clearTimeout(ffBarT);
+  ffBarT = setTimeout(() => { if (!video.paused && !ffDrag) bar.classList.remove('on'); }, 3500);
+}
+video.addEventListener('timeupdate', syncFFBar); video.addEventListener('play', syncFFBar); video.addEventListener('emptied', syncFFBar);
+video.addEventListener('pause', () => { syncFFBar(); showFFBar(); });
+$('pv').addEventListener('mousemove', showFFBar); $('pv').addEventListener('touchstart', showFFBar, {passive: true});
+$('ffPlay').onclick = (e) => { e.stopPropagation(); if (video.paused) video.play().catch(() => {}); else video.pause(); showFFBar(); };
+$('ffRange').onclick = (e) => e.stopPropagation();
+$('ffRange').oninput = (e) => { ffDrag = true; $('ffCur').textContent = fmt(+e.target.value); showFFBar(); };
+$('ffRange').onchange = (e) => { ffDrag = false; if (vodFF) { ffReload(+e.target.value); hint('▶▶  ' + fmt(+e.target.value) + (vodFF.dur ? ' / ' + fmt(vodFF.dur) : '')); } showFFBar(); };
 function tryPlay(a, ms) {
   return new Promise((resolve) => {
     const my = ++vodTry;
@@ -3597,7 +3631,7 @@ async function finishSetup(key, st) {
   S.servers = [...shareServers(key), ...keepOthers];
   if (S.lang == null || S.lang === 'es') S.lang = 'es-MX';
   if (!S.subLang) S.subLang = 'spa';
-  S.onlyAvail = true; S.welcomed = true; S.adUser = u.username || '';
+  S.onlyAvail = true; S.welcomed = true; if (S.langOnly == null) S.langOnly = true; S.adUser = u.username || '';
   save();
   $('gate').hidden = true; $('gate').replaceChildren();
   toast(u.isPremium ? '¡Listo' + (u.username ? ', ' + u.username : '') + '! Tu cuenta quedó conectada ✓' : 'Cuenta conectada, pero no tiene premium activo: renuévala para que abran las películas.', 7000);
@@ -3688,6 +3722,7 @@ function startApp() {
   });
 }
 profInit(); applyProfile();
+if (S.langOnly == null) { S.langOnly = true; save(); }   // LZ-SHARE: solo opciones en tu idioma cuando existan
 if (debridKey()) startApp(); else shareSetup();
 setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) focusEl($('clist').querySelector('.chrow.on') || $('clist').querySelector('.chrow') || document.querySelector('.nav.on')); }, 3500);
 </script>
