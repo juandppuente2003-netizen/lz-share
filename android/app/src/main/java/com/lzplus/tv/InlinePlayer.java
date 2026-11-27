@@ -136,6 +136,9 @@ class InlinePlayer {
     void rect(int x, int y, int w, int h) {
         if (view == null) return;
         if (w <= 0 || h <= 0) { view.setVisibility(View.INVISIBLE); return; }
+        // nunca más grande que la pantalla
+        int W = root.getWidth(), H = root.getHeight();
+        if (W > 0 && H > 0) { x = Math.max(0, Math.min(x, W)); y = Math.max(0, Math.min(y, H)); w = Math.min(w, W - x); h = Math.min(h, H - y); }
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
         lp.width = w; lp.height = h; lp.leftMargin = x; lp.topMargin = y; lp.gravity = Gravity.TOP | Gravity.START;
         view.setLayoutParams(lp);

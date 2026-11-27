@@ -183,7 +183,13 @@ public class MainActivity extends Activity {
         public void inlinePlay(final String json) { runOnUiThread(new Runnable() { public void run() { inline.play(json); } }); }
 
         @JavascriptInterface
-        public void inlineRect(final int x, final int y, final int w, final int h) { runOnUiThread(new Runnable() { public void run() { inline.rect(x, y, w, h); } }); }
+        public void inlineRect(final double x, final double y, final double w, final double h, final double vw, final double vh) {
+            runOnUiThread(new Runnable() { public void run() {
+                // de medidas de la página a pixeles reales de la pantalla
+                double sx = vw > 0 ? web.getWidth() / vw : 1, sy = vh > 0 ? web.getHeight() / vh : 1;
+                inline.rect((int) Math.round(x * sx), (int) Math.round(y * sy), (int) Math.round(w * sx), (int) Math.round(h * sy));
+            } });
+        }
 
         @JavascriptInterface
         public void inlineStop() { runOnUiThread(new Runnable() { public void run() { inline.stop(); } }); }

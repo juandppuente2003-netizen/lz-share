@@ -2664,12 +2664,14 @@ var INLINE = NATIVE && !!(window.LZ && window.LZ.inlinePlay);
 var inlineOn = false, inlineCh = null, inlineFail = null, inlineLast = '', inlineTick = 0;   // var: se pueden usar antes de que cargue todo
 function inlineRect() {
   if (!inlineOn) return;
-  const pe = $('pv'), r = pe.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  // Se manda en medidas de la página + el tamaño de la página: Android calcula la proporción con su pantalla real
+  // (con la densidad de pantalla salía más grande en algunos proyectores y teles)
+  const pe = $('pv'), r = pe.getBoundingClientRect(), vw = window.innerWidth || document.documentElement.clientWidth, vh = window.innerHeight || document.documentElement.clientHeight;
   const vis = (view === 'vivo' || isFull()) && $('det').hidden && r.width > 4 && r.height > 4;
-  const k = vis ? [r.left, r.top, r.width, r.height].map((v) => Math.round(v * dpr)).join(',') : '0,0,0,0';
+  const k = vis ? [r.left, r.top, r.width, r.height, vw, vh].map((v) => Math.round(v * 10) / 10).join(',') : '0,0,0,0,1,1';
   if (k === inlineLast) return;
   inlineLast = k; const a = k.split(',').map(Number);
-  try { window.LZ.inlineRect(a[0], a[1], a[2], a[3]); } catch (e) {}
+  try { window.LZ.inlineRect(a[0], a[1], a[2], a[3], a[4], a[5]); } catch (e) {}
 }
 function inlineStart(c, opts, onFail) {
   if (hls) { hls.destroy(); hls = null; }
