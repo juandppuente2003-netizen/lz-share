@@ -215,6 +215,8 @@
   .opt.cur{outline:2px solid var(--accent)}
   #yt,#yt iframe{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;border:0}
   #yt:empty{display:none}
+  /* TV en vivo apagada (Ajustes): se quita del menú y los botones de canales */
+  body.notv .nav[data-view="vivo"],body.notv #tbFav{display:none!important}
   /* Tele: el reproductor de la app va detrás de la página; la vista previa queda transparente para que se vea */
   body.inl{background:transparent}
   body.inl .slot,body.inl #pv{background:transparent}
@@ -1027,7 +1029,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key, c = e.keyCode;
   document.body.classList.add('kbd');
   if (!$('gate').hidden && /^[0-9]$/.test(k)) { e.preventDefault(); gateKey(k); return; }
-  if ($('gate').hidden && /^[0-9]$/.test(k) && !isText(e.target) && $('pick').hidden && $('det').hidden && ((isFull() && pvMode === 'live') || (!isFull() && view === 'vivo'))) { e.preventDefault(); numKey(k); return; }
+  if (tvOn() && $('gate').hidden && /^[0-9]$/.test(k) && !isText(e.target) && $('pick').hidden && $('det').hidden && ((isFull() && pvMode === 'live') || (!isFull() && view === 'vivo'))) { e.preventDefault(); numKey(k); return; }
   if (!$('gate').hidden && k === 'Backspace') { e.preventDefault(); gateKey('\b'); return; }
   const back = k === 'Escape' || k === 'GoBack' || k === 'BrowserBack' || c === 461 || c === 10009 || (k === 'Backspace' && !isText(e.target));
   if (k === 'Backspace' && view === 'buscar' && query && !e.target.closest?.('#pick,#det') && !isText(e.target) && !isFull()) { e.preventDefault(); typeKey('\b'); return; }
@@ -1068,7 +1070,7 @@ function goBack() {
   if (!$('grid').hidden) return closeGrid();
   const a = document.activeElement;
   if (!a || !a.closest('#rail')) return focusEl(document.querySelector('.nav.on'));
-  if (view !== 'vivo') go('vivo');
+  if (view !== homeView()) go(homeView());
   else if (NATIVE) confirmBox('¿Salir de LZ-SHARE?', 'Puedes volver cuando quieras desde el inicio de tu TV.', 'Salir', () => window.LZ.exit());
 }
 window.lzBack = () => goBack();
@@ -1077,6 +1079,9 @@ window.lzBack = () => goBack();
 //  Secciones
 // =====================================================================
 let view = 'vivo', pendingFocus = null;
+// TV en vivo: apagada de fábrica (Ajustes → TV en vivo). Apagada, la app arranca en Destacados y no muestra canales.
+const tvOn = () => !!(S && S.liveOn);
+const homeView = () => tvOn() ? 'vivo' : 'inicio';
 const built = {};
 const HEAVY = ['inicio', 'peliculas', 'series', 'anime', 'kids', 'buscar'];
 function go(v, focus = false) {
@@ -1438,7 +1443,7 @@ function buildHome() {
   setSpot(spot, {title: 'Bienvenido a LZ-SHARE', type: '', _placeholder: true, overview: 'Películas, series, anime y canales en vivo. Usa las flechas del control para moverte y OK para elegir.', backdrop: null}, true);
   spot._it = null;
   // Canales: seguir viendo y favoritos
-  const live = (title, list) => { if (!list.length) return; const r = makeRow(title); r._strip.replaceChildren(...list.map((c, i) => chCard(c, list, i))); rows.append(r); };
+  const live = (title, list) => { if (!list.length || !tvOn()) return; const r = makeRow(title); r._strip.replaceChildren(...list.map((c, i) => chCard(c, list, i))); rows.append(r); };
   const cont = Object.values(S.watch || {}).sort((a, b) => b.at - a.at).map((w) => w.it).filter(okItem);
   if (cont.length) { const r = makeRow('Continuar viendo'); r._strip.replaceChildren(...cont.map((it) => mediaCard(it, spot))); rows.append(r); }
   if (!isKids()) {   // Top 10: lo más popular hoy en México en Netflix, Disney+, Prime, Apple TV+ y HBO Max
@@ -1451,7 +1456,7 @@ function buildHome() {
   if (cont.length) setSpot(spot, cont[0], true);
   const defs = [...forYouRows(), ...rowsFor('inicio')];
   defs.forEach((d, i) => { const r = makeRow(d.title); rows.append(r); lazyRow(r, quickLoader('inicio|' + d.title, d.load), spot, i === 0); });
-  const lsrc = liveSources()[0];
+  const lsrc = tvOn() && liveSources()[0];
   const lr = makeRow('En vivo ahora', lsrc ? lsrc.name : ''); rows.append(lr);
   if (!lsrc) lr.remove(); else loadSource(lsrc.id).then(({channels}) => { const l = channels.slice(0, 30); l.length ? lr._strip.replaceChildren(...l.map((c, i) => chCard(c, l, i))) : lr.remove(); }).catch(() => lr.remove());
   if (!useTmdb()) {
@@ -1490,7 +1495,7 @@ function buildSearch() {
   left.append(qb, kb, note);
   const right = el('div', 'right');
   const f = el('div', 'chips');
-  [['todo', 'Todo'], ['movie', 'Películas'], ['series', 'Series'], ['anime', 'Anime'], ['ch', 'Canales']].forEach(([k, n]) => {
+  [['todo', 'Todo'], ['movie', 'Películas'], ['series', 'Series'], ['anime', 'Anime'], ...(tvOn() ? [['ch', 'Canales']] : [])].forEach(([k, n]) => {
     const c = btn('chip' + (k === searchFilter ? ' on' : ''), n, () => { searchFilter = k; f.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c)); runSearch(true); });
     f.append(c);
   });
@@ -1544,7 +1549,7 @@ async function runSearch() {
     if (!want(k)) continue;
     add((c.name || 'Resultados') + ' · ' + (a.manifest.name || a.name), addonList(a, c, 'search=' + g(q)), mk);
   }
-  if (want('ch')) {
+  if (want('ch') && tvOn()) {
     const p = (async () => {
       const srcs = [(liveSources()[0] || {}).id, S.src].filter((x, i, a) => x && a.indexOf(x) === i && liveSources().some((y) => y.id === x));
       const lists = await Promise.allSettled(srcs.map(loadSource));
@@ -3232,11 +3237,19 @@ function buildSettings() {
     chips([['auto', 'Calidad automática'], ['1080', '1080p'], ['720', '720p (más ligero)'], ['4k', '4K']], S.qPref || 'auto', (k) => { S.qPref = k; save(); toast('Guardado'); }),
     chips([['no', 'Si no hay en mi idioma, usar otro'], ['si', 'Solo mi idioma cuando exista']], S.langOnly ? 'si' : 'no', (k) => { S.langOnly = k === 'si'; save(); toast('Guardado'); }));
   w.append(bLq);
+  const bTv = el('div', 'box'); bTv.append(el('h2', 'disp', 'TV en vivo'),
+    chips([['off', 'Apagada (solo películas y series)'], ['on', 'Encendida']], tvOn() ? 'on' : 'off', (k) => {
+      S.liveOn = k === 'on'; save(); document.body.classList.toggle('notv', !S.liveOn);
+      if (!S.liveOn) { stopPlayback(); built.vivo = false; } else if (!built.vivo) { built.vivo = true; buildLive(); }
+      built.inicio = false; built.buscar = false; toast(S.liveOn ? 'TV en vivo encendida' : 'TV en vivo apagada'); buildSettings();
+    }),
+    el('p', 'note', 'Apagada, la app abre en Destacados y no muestra canales en el menú, la búsqueda ni las filas.'));
+  w.append(bTv);
   const bSt = el('div', 'box'); bSt.append(el('h2', 'disp', 'Al abrir la app'),
     chips([['prev', 'Último canal en la vista previa'], ['full', 'Último canal en pantalla completa']], S.startFull ? 'full' : 'prev', (k) => { S.startFull = k === 'full'; save(); toast('Guardado'); }),
     el('p', 'note', 'La app siempre arranca con el último canal que viste.'));
-  w.append(bSt);
-  if (NATIVE && window.LZ && window.LZ.inlinePlay) {
+  if (tvOn()) w.append(bSt);
+  if (tvOn() && NATIVE && window.LZ && window.LZ.inlinePlay) {
     const bIv = el('div', 'box'); bIv.append(el('h2', 'disp', 'Vista previa de TV en vivo'),
       chips([['web', 'Modo normal (recomendado)'], ['app', 'Reproductor de la app (en prueba)']], S.inlineOn ? 'app' : 'web', (k) => {
         S.inlineOn = k === 'app'; INLINE = S.inlineOn; save(); toast('Guardado');
@@ -3376,7 +3389,8 @@ function buildSettings() {
 //  Arranque
 // =====================================================================
 load();
-if (!S.inlineOn) INLINE = false;   // el reproductor de la app en la vista previa solo si se enciende en Ajustes (en prueba)
+if (!S.inlineOn) INLINE = false;
+document.body.classList.toggle('notv', !S.liveOn);   // el reproductor de la app en la vista previa solo si se enciende en Ajustes (en prueba)
 function applyScreen() { phoneMode(); const r = document.documentElement.style; r.setProperty('--ui', S.ui || 1); r.setProperty('--safe', (S.safe || 0) + 'vh'); }
 applyScreen();
 addEventListener('resize', phoneMode);
@@ -3841,7 +3855,8 @@ let appStarted = false;
 function startApp() {
   appStarted = true;
   const proxyReady = detectProxy();
-  Promise.race([proxyReady, sleep(1800)]).then(() => { netState(); built.vivo = true; buildLive(); });
+  Promise.race([proxyReady, sleep(1800)]).then(() => { netState(); if (tvOn()) { built.vivo = true; buildLive(); } });
+  if (!tvOn()) go('inicio', true);
   Promise.allSettled([proxyReady, loadTmdbGenres()]).then(async () => {
     refreshAddons();   // los complementos se leen de inmediato (no esperan a nada más)
     // Cada vez que se abre: se revisa que el código siga existiendo y se traen tus cambios
