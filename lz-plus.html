@@ -2696,8 +2696,8 @@ window.lzInline = (st) => {
   else if (st === 'fail') { const f = inlineFail; inlineStop(); if (curCh === c && f) f(); }
   else if (st === 'resume') { if (curCh === c && pvMode === 'live') playChannel(c, liveList); }
   else if (st === 'badrect') {   // Android no pudo acomodar el video en el cuadro en esta pantalla: modo anterior y se recuerda
-    S.inlineOff = true; INLINE = false; save(); inlineStop(); logErr('Vista previa: esta pantalla no acomoda el video; se usa el modo anterior');
-    toast('Vista previa: en esta pantalla se usará el modo anterior (Ajustes → Vista previa de TV en vivo)', 7000);
+    S.inlineOn = false; INLINE = false; save(); inlineStop(); logErr('Vista previa: esta pantalla no acomoda el video; se usa el modo anterior');
+    toast('Vista previa: en esta pantalla se usará el modo normal', 7000);
     if (curCh === c && pvMode === 'live') playChannel(c, liveList);
   }
 };
@@ -3231,11 +3231,11 @@ function buildSettings() {
   w.append(bSt);
   if (NATIVE && window.LZ && window.LZ.inlinePlay) {
     const bIv = el('div', 'box'); bIv.append(el('h2', 'disp', 'Vista previa de TV en vivo'),
-      chips([['app', 'Reproductor de la app (recomendado)'], ['web', 'Modo anterior (navegador interno)']], S.inlineOff ? 'web' : 'app', (k) => {
-        S.inlineOff = k === 'web'; INLINE = !S.inlineOff; save(); toast('Guardado');
+      chips([['web', 'Modo normal (recomendado)'], ['app', 'Reproductor de la app (en prueba)']], S.inlineOn ? 'app' : 'web', (k) => {
+        S.inlineOn = k === 'app'; INLINE = S.inlineOn; save(); toast('Guardado');
         if (pvMode === 'live' && curCh) { inlineStop(); playChannel(curCh, liveList); }
       }),
-      el('p', 'note', 'El reproductor de la app abre más canales. Si en tu pantalla el video no queda dentro del cuadro, la app cambia sola al modo anterior.'));
+      el('p', 'note', 'El modo normal es el de siempre. El reproductor de la app está en prueba: puede abrir más canales, pero en algunas pantallas el video no queda dentro del cuadro.'));
     w.append(bIv);
   }
   const b2 = el('div', 'box'); b2.append(el('h2', 'disp', 'Idioma de subtítulos'), chips(SUBS, S.subLang, (k) => { S.subLang = k; save(); toast('Guardado'); }),
@@ -3369,7 +3369,7 @@ function buildSettings() {
 //  Arranque
 // =====================================================================
 load();
-if (S.inlineOff) INLINE = false;
+if (!S.inlineOn) INLINE = false;   // el reproductor de la app en la vista previa solo si se enciende en Ajustes (en prueba)
 function applyScreen() { phoneMode(); const r = document.documentElement.style; r.setProperty('--ui', S.ui || 1); r.setProperty('--safe', (S.safe || 0) + 'vh'); }
 applyScreen();
 addEventListener('resize', phoneMode);
