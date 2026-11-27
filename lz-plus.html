@@ -215,6 +215,10 @@
   .opt.cur{outline:2px solid var(--accent)}
   #yt,#yt iframe{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;border:0}
   #yt:empty{display:none}
+  /* Tele: el reproductor de la app va detrás de la página; la vista previa queda transparente para que se vea */
+  body.inl{background:transparent}
+  body.inl .slot,body.inl #pv{background:transparent}
+  body.inl #pv video{visibility:hidden}
   #ffbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.8rem;padding:1.4rem 1.4rem 1rem;background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:6;opacity:0;transition:opacity .3s;pointer-events:none}
   #ffbar.on{opacity:1;pointer-events:auto}
   #ffbar[hidden]{display:none}
@@ -1950,6 +1954,7 @@ async function gatherOpts(adds, type, id, onFirst, onEach) {
   return dedupeOpts(opts);
 }
 async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
+  inlineStop();
   const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   const body = el('div'); body.append(el('div', 'spin'), el('p', 'note', 'Buscando video en tus complementos…'));
   openPick(label, [body]);
@@ -2531,6 +2536,7 @@ function toggleFav(c) {
 // =====================================================================
 let hls = null, pvMode = null, curCh = null, liveList = [], osdT, hintT, fullPrevFocus = null;
 function stopPlayback() {
+  inlineStop();
   if (pvMode === 'vod') saveProgress(true);
   vodTry++; vodSess++; vodFF = null; vodCur = null; vodSub = null;
   if (hls) { hls.destroy(); hls = null; }
@@ -2548,6 +2554,7 @@ function msg(text, btns, spin) {
   m.append(d);
 }
 function playUrl(url, onFail) {
+  inlineStop();
   vodTry++;
   if (hls) { hls.destroy(); hls = null; }
   $('yt').replaceChildren(); video.hidden = false;
@@ -2597,6 +2604,7 @@ function liveAttempts(c) {
   return out;
 }
 function playAddonChannel(c, list) {
+  inlineStop();
   if (pvMode === 'trailer') $('yt').replaceChildren();
   if (hls) { hls.destroy(); hls = null; }
   video.pause(); video.removeAttribute('src'); video.hidden = false;
@@ -2606,6 +2614,9 @@ function playAddonChannel(c, list) {
   addChRecent(c);
   addonChannelLinks(c).then(({direct, web}) => {
     if (curCh !== c) return;
+    if (direct.length && INLINE) {
+      return inlineStart(c, direct, () => web.length ? playWebChannel(c, web[0]) : liveFail(c, 'Ninguna señal de este evento abrió. Prueba en unos minutos o elige otro.'));
+    }
     if (direct.length) {
       const tries = direct.flatMap((d) => liveAttempts({...c, ...d, via: true})).filter((u, i, a) => a.indexOf(u) === i); let ti = 0;
       let wd = 0;
@@ -2627,6 +2638,7 @@ function playAddonChannel(c, list) {
 }
 // Canales que solo traen un reproductor web: se abre dentro de la app
 function playWebChannel(c, url) {
+  inlineStop();
   if (hls) { hls.destroy(); hls = null; }
   video.pause(); video.removeAttribute('src'); video.hidden = true;
   const f = el('iframe'); f.allow = 'autoplay; encrypted-media; fullscreen'; f.title = c.name;
@@ -2644,20 +2656,64 @@ function addChRecent(c) {
   S.recents = [c, ...S.recents.filter((r) => r.url !== c.url)].slice(0, 15).map((x) => ({name: x.name, logo: x.logo, url: x.url, group: x.group, quality: x.quality, tags: x.tags || [], srcName: x.srcName, via: x.via, hdr: x.hdr, ref: x.ref, ua: x.ua, ad: x.ad || null}));
   save(); built.inicio = false;
 }
-const nativeChannel = (c) => window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: [{url: c.url, ref: c.ref || '', ua: c.ua || ''}]}));
+const nativeChannel = (c) => { inlineStop(); window.LZ.play(JSON.stringify({title: c.name, sleepAt: sleepAt || 0, opts: [{url: c.url, ref: c.ref || '', ua: c.ua || ''}]})); };
+// ---------- Tele: TV en vivo con el reproductor de la app dentro de la vista previa ----------
+// Se ve igual que antes, pero el video lo reproduce Android (abre más canales, manda las cabeceras que piden
+// y no sale en negro). Va detrás de la página: el nombre del canal, mensajes y la lista se ven encima.
+var INLINE = NATIVE && !!(window.LZ && window.LZ.inlinePlay);
+var inlineOn = false, inlineCh = null, inlineFail = null, inlineLast = '', inlineTick = 0;   // var: se pueden usar antes de que cargue todo
+function inlineRect() {
+  if (!inlineOn) return;
+  const pe = $('pv'), r = pe.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const vis = (view === 'vivo' || isFull()) && $('det').hidden && r.width > 4 && r.height > 4;
+  const k = vis ? [r.left, r.top, r.width, r.height].map((v) => Math.round(v * dpr)).join(',') : '0,0,0,0';
+  if (k === inlineLast) return;
+  inlineLast = k; const a = k.split(',').map(Number);
+  try { window.LZ.inlineRect(a[0], a[1], a[2], a[3]); } catch (e) {}
+}
+function inlineStart(c, opts, onFail) {
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause(); video.removeAttribute('src'); try { video.load(); } catch (e) {}
+  $('yt').replaceChildren(); video.hidden = false;
+  inlineOn = true; inlineCh = c; inlineFail = onFail; inlineLast = '';
+  document.body.classList.add('inl');
+  window.LZ.inlinePlay(JSON.stringify({opts: opts.slice(0, 8)}));
+  inlineRect(); clearInterval(inlineTick); inlineTick = setInterval(inlineRect, 300);
+}
+function inlineStop() {
+  if (!inlineOn) return;
+  inlineOn = false; inlineCh = null; inlineFail = null; clearInterval(inlineTick);
+  document.body.classList.remove('inl');
+  try { window.LZ.inlineStop(); } catch (e) {}
+}
+window.lzInline = (st) => {
+  const c = inlineCh; if (!c || !inlineOn) return;
+  if (st === 'playing') { if (curCh === c) msg(''); if (!c.ad && chState(c) !== true) setCh(c, true); }
+  else if (st === 'fail') { const f = inlineFail; inlineStop(); if (curCh === c && f) f(); }
+  else if (st === 'resume') { if (curCh === c && pvMode === 'live') playChannel(c, liveList); }
+};
 function playChannel(c, list) {
   if (S.lastCh !== c.url) { S.lastCh = c.url; clearTimeout(playChannel.t); playChannel.t = setTimeout(save, 1500); }
   if (c.ad) return playAddonChannel(c, list);
-  if (NATIVE && c.hdr && !PROXY) { curCh = c; liveList = list || [c]; return nativeChannel(c); }
+  if (!INLINE && NATIVE && c.hdr && !PROXY) { curCh = c; liveList = list || [c]; return nativeChannel(c); }
   pvMode = 'live'; curCh = c; liveList = list || [c];
   video.controls = false;
   msg('Cargando ' + c.name + '…', null, true);
-  const tries = liveAttempts(c); let ti = 0;
-  const attempt = () => {
-    playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); setCh(c, false); onLiveFail(); });
-    video.onplaying = () => { msg(''); if (curCh === c && chState(c) !== true) setCh(c, true); };
-  };
-  attempt();
+  if (INLINE) {
+    inlineStart(c, [{url: c.url, ref: c.ref || '', ua: c.ua || ''}], () => {
+      setCh(c, false);
+      msg('Este canal no tiene señal ahora.', [btn('btn pri', '⟳ Reintentar', () => playChannel(c, liveList)), btn('btn', 'Canal siguiente ▶', () => zap(1))]);
+      if (isFull()) setTimeout(() => focusEl($('pvMsg').querySelector('button')), 50);
+    });
+  } else {
+    inlineStop();
+    const tries = liveAttempts(c); let ti = 0;
+    const attempt = () => {
+      playUrl(tries[ti], () => { if (curCh !== c) return; if (++ti < tries.length) return attempt(); setCh(c, false); onLiveFail(); });
+      video.onplaying = () => { msg(''); if (curCh === c && chState(c) !== true) setCh(c, true); };
+    };
+    attempt();
+  }
   function onLiveFail() { ( NATIVE ? (msg('Este canal no abrió aquí.', [btn('btn pri', 'Abrir con el reproductor de la app', () => nativeChannel(c))]), isFull() && setTimeout(() => focusEl($('pvMsg').querySelector('button')), 50)) : msg('Este canal no tiene señal ahora.', isFull() ? null : [btn('btn sm', 'Probar el siguiente ▶', () => zap(1))]) || (isFull() && hint('▲ ▼  Cambia de canal'))); }
   document.querySelectorAll('.chrow').forEach((r) => r.classList.toggle('on', r.dataset.url === c.url));
   S.recents = [c, ...S.recents.filter((r) => r.url !== c.url)].slice(0, 15).map((x) => ({name: x.name, logo: x.logo, url: x.url, group: x.group, quality: x.quality, tags: x.tags || [], srcName: x.srcName, via: x.via, hdr: x.hdr, ref: x.ref, ua: x.ua, ad: x.ad || null}));
@@ -2947,6 +3003,7 @@ function openExternal(url) {
   else location.href = 'vlc://' + url;
 }
 function playTrailer(key, title) {
+  inlineStop();
   if (hls) { hls.destroy(); hls = null; }
   video.pause(); video.removeAttribute('src'); video.hidden = true;
   if (pvMode === 'live') curCh = null;

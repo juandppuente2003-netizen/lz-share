@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 import android.os.Build;
 import android.provider.Settings;
@@ -30,6 +31,8 @@ import java.net.URL;
  */
 public class MainActivity extends Activity {
     private WebView web;
+    private InlinePlayer inline;
+    private boolean inlineWas = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,7 +41,7 @@ public class MainActivity extends Activity {
 
         WebView.setWebContentsDebuggingEnabled(true);   // permite revisar errores desde una computadora
         web = new WebView(this);
-        web.setBackgroundColor(Color.rgb(6, 8, 15));
+        web.setBackgroundColor(Color.TRANSPARENT);   // transparente: el video de la vista previa se ve por el hueco que deja la página
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -65,7 +68,11 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        setContentView(web);
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.rgb(7, 6, 14));   // mismo color de fondo que la app
+        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+        inline = new InlinePlayer(this, root, web);
         web.requestFocus();
         web.loadUrl("file:///android_asset/index.html");
     }
@@ -89,13 +96,13 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onPause() { super.onPause(); web.onPause(); }
+    protected void onPause() { super.onPause(); inlineWas = inline != null && inline.active; if (inline != null) inline.stop(); web.onPause(); }
 
     @Override
-    protected void onResume() { super.onResume(); web.onResume(); }
+    protected void onResume() { super.onResume(); web.onResume(); if (inlineWas) { inlineWas = false; web.evaluateJavascript("window.lzInline && lzInline('resume',0)", null); } }
 
     @Override
-    protected void onDestroy() { web.destroy(); super.onDestroy(); }
+    protected void onDestroy() { if (inline != null) inline.release(); web.destroy(); super.onDestroy(); }
 
     private void js(final String code) {
         runOnUiThread(new Runnable() { public void run() { web.evaluateJavascript(code, null); } });
@@ -171,6 +178,16 @@ public class MainActivity extends Activity {
             new Thread(new Runnable() { public void run() { downloadAndInstall(url); } }).start();
         }
 
+        /** TV en vivo dentro de la vista previa. json: {"opts": [{"url","ref","ua"}]} */
+        @JavascriptInterface
+        public void inlinePlay(final String json) { runOnUiThread(new Runnable() { public void run() { inline.play(json); } }); }
+
+        @JavascriptInterface
+        public void inlineRect(final int x, final int y, final int w, final int h) { runOnUiThread(new Runnable() { public void run() { inline.rect(x, y, w, h); } }); }
+
+        @JavascriptInterface
+        public void inlineStop() { runOnUiThread(new Runnable() { public void run() { inline.stop(); } }); }
+
         @JavascriptInterface
         public void exit() { runOnUiThread(new Runnable() { public void run() { finish(); } }); }
 
@@ -184,6 +201,7 @@ public class MainActivity extends Activity {
         public void play(final String json) {
             runOnUiThread(new Runnable() {
                 public void run() {
+                    if (inline != null) inline.stop();   // un solo reproductor a la vez
                     Intent i = new Intent(MainActivity.this, PlayerActivity.class);
                     i.putExtra("data", json);
                     startActivityForResult(i, 7);
