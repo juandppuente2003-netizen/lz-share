@@ -124,6 +124,14 @@
   .card .prog i{display:block;height:100%;background:var(--grad)}
   .card .seen{position:absolute;top:.5rem;right:.5rem;width:1.8rem;height:1.8rem;border-radius:50%;background:var(--grad);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:1rem;box-shadow:0 2px 8px rgba(0,0,0,.5)}
   .card .here{position:absolute;top:.5rem;left:.5rem;background:rgba(0,0,0,.75);color:#fff;font-weight:700;font-size:.8rem;padding:.2rem .6rem;border-radius:1rem;border:1px solid var(--accent)}
+  .card .tags{position:absolute;top:.5rem;left:.5rem;display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;z-index:1}
+  .card .tags span{background:var(--grad);color:#fff;font-weight:800;font-size:.7rem;letter-spacing:.04em;padding:.15rem .45rem;border-radius:.4rem;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+  .card .tags .lat{background:#14915a}
+  .spot-logo{display:block;max-width:26rem;max-height:7.5rem;width:auto;height:auto;object-fit:contain;object-position:left bottom;filter:drop-shadow(0 .3rem 1rem rgba(0,0,0,.6))}
+  .spot .kick .lat{color:#3ee08f}
+  /* Pantallas bajas (proyectores de 480-600 px de alto): portada más baja para que el logo y la primera fila quepan juntos */
+  @media (max-height:620px){body:not(.phone) .spot{height:58vh;min-height:0}body:not(.phone) .spot .in{padding-bottom:3rem;gap:.55rem}body:not(.phone) .rows{margin-top:-1.6rem}body:not(.phone) .view.cat .rows{margin-top:-1.6rem}body:not(.phone) .spot-logo{max-height:4.6rem;max-width:20rem}body:not(.phone) .spot p{-webkit-line-clamp:2;font-size:1.05rem}body:not(.phone) .spot h1{font-size:3rem}}
+  body.phone .spot-logo{max-width:14rem;max-height:4.5rem}
   .card .ok-b{position:absolute;left:.5rem;bottom:.5rem;background:rgba(10,40,24,.88);color:var(--ok);font-weight:800;font-size:.75rem;padding:.2rem .5rem;border-radius:.4rem}
   .card .badge-r{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.75);color:var(--accent);font-weight:800;font-size:.8rem;padding:.2rem .5rem;border-radius:.4rem}
   .card.wide{width:17rem}.card.wide .pi{aspect-ratio:16/9}
@@ -880,7 +888,7 @@ async function checkId(it) {
 async function isAvailable(it) {
   const key = it.src + ':' + it.id, c = AV[key];
   if (c && Date.now() - c.t < AV_TTL) return c.ok;
-  let ok = null;
+  let ok = null, lat = false;
   try {
     const x = await withTimeout(checkId(it), 10000);
     if (!x?.id) ok = false;
@@ -888,6 +896,7 @@ async function isAvailable(it) {
       const res = await Promise.allSettled(streamAddons().map((a) => withTimeout(getStreams(a, x.type, x.id), 15000)));
       const got = res.filter((r) => r.status === 'fulfilled');
       const cand = got.flatMap((r) => r.value.filter(playable)).sort((p, q) => streamScore(p) - streamScore(q));
+      lat = cand.some((s) => ['lat', 'es'].includes(streamInfo(s).lang));
       if (!cand.length) ok = got.length ? false : null;
       else if (!(NATIVE || PROXY)) ok = true;   // sin forma de revisar el link desde aquí: se confía en el complemento
       else {
@@ -902,7 +911,7 @@ async function isAvailable(it) {
       }
     }
   } catch {}
-  if (ok !== null) { AV[key] = {ok, t: Date.now()}; saveAV(); }
+  if (ok !== null) { AV[key] = {ok, t: Date.now(), lat: ok && lat}; saveAV(); }
   return ok;
 }
 // Las carátulas salen de inmediato; la revisión sigue por detrás: se quitan las que no tienen video y se marcan las que sí
@@ -919,7 +928,7 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
   upd();
   items.forEach((it, i) => watchCard(cards[i], () => { asked++; upd(); limit(() => isAvailable(it)).then((ok) => {
     done++; const card = cards[i];
-    if (ok === true) { yes++; card.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); }
+    if (ok === true) { yes++; card.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); latTag(card, it); }
     else if (ok === false && card !== document.activeElement) {
       const strip = row._strip; if (strip._last === card) strip._last = null;
       card.remove();
@@ -950,7 +959,7 @@ function openGrid(title, items, pager) {
     }
     const part = all.slice(drawn, drawn + chunk); drawn += part.length;
     part.forEach((it) => { const c = mediaCard(it); grid.append(c);
-      if (check) watchCard(c, () => limit(() => isAvailable(it)).then((ok) => { if (ok === true) c.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); else if (ok === false && c !== document.activeElement) c.remove(); })); });
+      if (check) watchCard(c, () => limit(() => isAvailable(it)).then((ok) => { if (ok === true) { c.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); latTag(c, it); } else if (ok === false && c !== document.activeElement) c.remove(); })); });
     cnt.textContent = drawn + (noMore && drawn >= all.length ? '' : '+') + ' títulos';
     end.textContent = drawn >= all.length && noMore ? (drawn ? 'Eso es todo' : 'Sin títulos') : '';
     if (part.length && !grid.querySelector('.card:focus') && document.activeElement === back) {}
@@ -1100,8 +1109,8 @@ document.querySelectorAll('#rail .nav').forEach((n) => { const t = n.querySelect
 //  Secciones
 // =====================================================================
 let view = 'vivo', pendingFocus = null;
-// TV en vivo: apagada de fábrica (Ajustes → TV en vivo). Apagada, la app arranca en Destacados y no muestra canales.
-const tvOn = () => !!(S && S.liveOn);
+// TV en vivo: encendida de fábrica; se puede apagar en Ajustes → TV en vivo (apagada, la app arranca en Destacados sin canales)
+const tvOn = () => !(S && S.liveOn === false);
 const homeView = () => tvOn() ? 'vivo' : 'inicio';
 const built = {};
 const HEAVY = ['inicio', 'peliculas', 'series', 'anime', 'kids', 'buscar'];
@@ -1226,6 +1235,21 @@ function baseRows(v) {
 
 // ---------------- Portada que cambia con la tarjeta seleccionada ----------------
 const TYPE_ES = {movie: 'Película', series: 'Serie', anime: 'Anime'};
+// Logo oficial: el que trae el catálogo, o el del banco de logos de Stremio por su código IMDb
+const imdbOf = (it) => { const m = String(it.imdb || it.id || '').match(/^(tt\d+)/); return m ? m[1] : ''; };
+const logoOf = (it) => it.logo || (imdbOf(it) ? 'https://images.metahub.space/logo/medium/' + imdbOf(it) + '/img' : null);
+const isNew = (it) => +it.year >= new Date().getFullYear();
+const hasLat = (it) => !!(AV[it.src + ':' + it.id] || {}).lat;
+function latTag(card, it) {   // agrega LATINO a una portada ya dibujada, cuando se acaba de saber
+  if (!hasLat(it) || !card || card.querySelector('.tags .lat')) return;
+  const pi = card.querySelector('.pi'); if (!pi) return;
+  let tg = pi.querySelector('.tags'); if (!tg) { tg = el('div', 'tags'); pi.append(tg); }
+  tg.append(el('span', 'lat', 'LATINO'));
+}
+function titleEl(it, cls) {   // logo si hay (si no carga, el nombre en texto)
+  const lu = logoOf(it); if (!lu) return el('h1', 'disp', it.title);
+  const i = img(lu, it.title, () => i.replaceWith(el('h1', 'disp', it.title))); i.className = cls; return i;
+}
 function makeSpot() {
   const s = el('div', 'spot'); s.append(el('div', 'bg'));
   const i = el('div', 'in'); s.append(i);
@@ -1242,10 +1266,11 @@ function setSpot(spot, it, now) {
     const pre = new Image(); pre.onload = pre.onerror = () => { bg.style.backgroundImage = url ? 'url("' + url + '")' : ''; bg.classList.remove('fade'); }; pre.src = url || '';
     if (!url) pre.onload();
     const k = el('div', 'kick');
-    [TYPE_ES[it.type], it.year, it.rating && '★ ' + it.rating, it.genres?.slice(0, 2).join(' · ')].filter(Boolean).forEach((t) => k.append(el('span', null, t)));
+    [isNew(it) && 'NUEVO', TYPE_ES[it.type], it.year, it.rating && '★ ' + it.rating, it.genres?.slice(0, 2).join(' · ')].filter(Boolean).forEach((t) => k.append(el('span', null, t)));
+    if (hasLat(it)) k.append(el('span', 'lat', 'Latino disponible'));
     const b = el('div', 'btns');
     if (it.type) b.append(btn('btn pri', '▶  Ver detalles', () => openDetail(it)));
-    spot._in.replaceChildren(k, el('h1', 'disp', it.title), el('p', null, it.overview || 'Sin descripción por ahora.'), b);
+    spot._in.replaceChildren(k, titleEl(it, 'spot-logo'), el('p', null, it.overview || 'Sin descripción por ahora.'), b);
   };
   if (now) run(); else spotT = setTimeout(run, 260);
 }
@@ -1359,6 +1384,7 @@ function mediaCard(it, spot) {
   const pi = el('div', 'pi');
   pi.append(img(it.poster, '', () => phFor(pi, it.title)));
   if (it.rating) pi.append(el('span', 'badge-r', '★ ' + it.rating));
+  { const tg = el('div', 'tags'); if (isNew(it)) tg.append(el('span', null, 'NUEVO')); if (hasLat(it)) tg.append(el('span', 'lat', 'LATINO')); if (tg.children.length) pi.append(tg); }
   const w = watchOf(it); if (w && w.d) { const pr = el('span', 'prog'); const i = el('i'); i.style.width = Math.min(100, Math.round(w.t / w.d * 100)) + '%'; pr.append(i); pi.append(pr); }
   b.append(pi, el('span', 'ct', it.title));
   if (it.year) b.append(el('span', 'sub', [it.year, TYPE_ES[it.type]].join(' · ')));
@@ -1606,7 +1632,7 @@ async function openDetail(it) {
   detData = x;
   { const v = vodId(x, x.type === 'movie' || x.mt === 'movie' ? null : x.firstEp); prefetchStreams(v.type, v.id); }
   if (x.backdrop) bg.style.backgroundImage = 'url("' + x.backdrop + '")';
-  const title = x.logo ? (() => { const i = img(x.logo, x.title, () => i.replaceWith(el('h1', 'disp', x.title))); i.className = 'det-logo'; return i; })() : el('h1', 'disp', x.title);
+  const title = titleEl(x, 'det-logo');
   const meta = el('div', 'meta');
   [[TYPE_ES[x.type], 'tag'], [x.year], [x.runtime], [x.rating && '★ ' + x.rating, 'r']].filter((m) => m[0]).forEach(([t, c]) => meta.append(el('span', c, t)));
   (x.genres || []).slice(0, 4).forEach((gg) => meta.append(el('span', 'tag', gg)));
@@ -3411,7 +3437,7 @@ function buildSettings() {
 // =====================================================================
 load();
 if (!S.inlineOn) INLINE = false;
-document.body.classList.toggle('notv', !S.liveOn);   // el reproductor de la app en la vista previa solo si se enciende en Ajustes (en prueba)
+document.body.classList.toggle('notv', S.liveOn === false);   // TV en vivo: solo se oculta si se apagó en Ajustes
 function applyScreen() { phoneMode(); const r = document.documentElement.style; r.setProperty('--ui', S.ui || 1); r.setProperty('--safe', (S.safe || 0) + 'vh'); }
 applyScreen();
 addEventListener('resize', phoneMode);
