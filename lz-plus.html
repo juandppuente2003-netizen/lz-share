@@ -634,8 +634,15 @@ function syncToPc() {
 const iptvOff = () => S.iptvOff !== false;   // iptv-org viene apagado hasta que el usuario elija una lista
 const cfgData = () => ({v: 1, servers: S.servers, favs: S.favs, lib: S.lib, lang: S.lang, subLang: S.subLang, tmdb: S.tmdb, iptv: S.iptv, iptvOff: iptvOff(), cue: S.cue, onlyAvail: S.onlyAvail});
 const applyCfg = (c) => { if (!c || !Array.isArray(c.servers)) throw new Error('vacía');
-    const have = new Set(S.servers.map((s) => s.url || s.host + s.user));
-    c.servers.forEach((s) => { if (!have.has(s.url || s.host + s.user)) S.servers.push({...s, id: newId()}); });
+    // La configuración que llega manda: un servidor con el mismo nombre se reemplaza por su versión nueva
+    // (antes, al cambiar el link de uno, quedaba repetido: el viejo y el nuevo). Los que llegaron antes de la
+    // misma configuración y ya no vienen, se quitan; los que agregaste a mano en este aparato se respetan.
+    const nm = (x) => String(x.name || '').trim().toLowerCase(), sk = (x) => x.url || x.host + x.user;
+    const inCfg = new Set(c.servers.map(sk)), byName = new Map(c.servers.map((x) => [nm(x), x]));
+    S.servers = S.servers.filter((x) => { const m = byName.get(nm(x)); if (m && sk(m) !== sk(x)) return false; if (x.fromCfg && !inCfg.has(sk(x))) return false; return true; });
+    const have = new Set(S.servers.map(sk));
+    S.servers.forEach((x) => { if (inCfg.has(sk(x))) x.fromCfg = true; });
+    c.servers.forEach((x) => { if (!have.has(sk(x))) S.servers.push({...x, id: newId(), fromCfg: true}); });
     ['favs', 'lib'].forEach((k) => { const seen = new Set((S[k] || []).map((x) => x.url || keyOf(x))); (c[k] || []).forEach((x) => { if (!seen.has(x.url || keyOf(x))) (S[k] = S[k] || []).push(x); }); });
     // Borrado de historial ordenado desde tu archivo de código ("wipe"): se hace una sola vez en cada aparato
     if (c.wipe && c.wipe !== S.wipeDone) {
