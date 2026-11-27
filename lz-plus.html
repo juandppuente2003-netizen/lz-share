@@ -3509,6 +3509,23 @@ function shareServers(key) {
     {name: 'COMET', url: COMET_BASE + '/' + b64utf(JSON.stringify({...COMET_OPC, debridServices: [{service: 'alldebrid', apiKey: key}]})) + '/manifest.json'},
     ...SHARE_FIJOS].map((x) => ({id: newId(), kind: 'addon', name: x.name, url: x.url}));
 }
+// MediaFusion (el servidor "Prueba"): su link va cifrado, así que se le pide uno nuevo con la cuenta de cada quien
+const MF_BASE = 'https://mediafusion.elfhosted.com';
+async function mediaFusionServer(key) {
+  const body = {streaming_provider: {service: 'alldebrid', token: key, only_show_cached_streams: true, enable_watchlist_catalogs: false},
+    enable_catalogs: false, selected_catalogs: [], selected_resolutions: ['1080p', '720p', '576p', '480p'], max_size: 16106127360,
+    nudity_filter: ['Severe'], certification_filter: ['Adults+'], language_sorting: ["Latino", "Spanish", "English", "Tamil", "Hindi", "Malayalam", "Kannada", "Telugu", "Chinese", "Russian", "Arabic", "Japanese", "Korean", "Taiwanese", "French", "Portuguese", "Italian", "German", "Ukrainian", "Polish", "Czech", "Thai", "Indonesian", "Vietnamese", "Dutch", "Bengali", "Turkish", "Greek", "Swedish", "Romanian", "Hungarian", "Finnish", "Norwegian", "Danish", "Hebrew", "Lithuanian", "Punjabi", "Marathi", "Gujarati", "Bhojpuri", "Nepali", "Urdu", "Tagalog", "Filipino", "Malay", "Mongolian", "Armenian", "Georgian"]};
+  const r = await withTimeout(fetch(MF_BASE + '/encrypt-user-data', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}), 25000);
+  const j = await r.json().catch(() => ({}));
+  if (j.status === 'success' && j.encrypted_str) return {id: newId(), kind: 'addon', name: 'MEDIAFUSION', url: MF_BASE + '/' + j.encrypted_str + '/manifest.json'};
+  throw new Error(j.message || 'MediaFusion no respondió');
+}
+async function ensureMediaFusion(quiet) {
+  const key = debridKey();
+  if (!key || (S.servers || []).some((x) => /mediafusion/i.test(x.url || ''))) return;
+  try { const srv = await mediaFusionServer(key); if (debridKey() !== key) return; S.servers.splice(2, 0, srv); save(); refreshAddons(); if (!quiet) toast('MediaFusion agregado ✓'); }
+  catch (e) { logErr('MediaFusion: ' + (e && e.message)); if (!quiet) toast('No se pudo agregar MediaFusion ahora: ' + (e && e.message || 'sin respuesta') + '. Se intentará de nuevo al abrir la app.', 8000); }
+}
 const AD = 'https://api.alldebrid.com';
 async function adJson(u, ms) { try { const r = await withTimeout(fetch(u), ms || 12000); return await r.json(); } catch (e) { if (!PROXY) throw e; return JSON.parse((await rawGet(u, ms)).text); } }
 async function adUser(key) {
@@ -3586,6 +3603,7 @@ async function finishSetup(key, st) {
   toast(u.isPremium ? '¡Listo' + (u.username ? ', ' + u.username : '') + '! Tu cuenta quedó conectada ✓' : 'Cuenta conectada, pero no tiene premium activo: renuévala para que abran las películas.', 7000);
   srcCache.clear && srcCache.clear(); built.inicio = false;
   if (!appStarted) startApp(); else { refreshAddons(); checkAll(false); if (view === 'inicio') go('inicio', true); }
+  ensureMediaFusion(false);
 }
 // ---------------- Acceso con código (no se usa en LZ-SHARE) ----------------
 // Nadie entra sin un código válido (un archivo en la carpeta "configs" de tu GitHub).
@@ -3661,6 +3679,7 @@ function startApp() {
     refreshAddons();   // los complementos se leen de inmediato (no esperan a nada más)
     // Cada vez que se abre: se revisa que el código siga existiendo y se traen tus cambios
     syncToPc();
+    setTimeout(() => ensureMediaFusion(true), 3000);   // aparatos configurados antes de que existiera, o si falló la primera vez
     refreshAddons();
     setTimeout(checkUpdate, 4000);
     setTimeout(() => checkAll(false), 7000);
