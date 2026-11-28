@@ -9,6 +9,7 @@ import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -55,6 +56,10 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);              // ignora el tamaño de letra del sistema (si no, la app se sale de la pantalla)
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
+        // Fluidez: la página se dibuja por adelantado al desplazarse y tiene prioridad en el aparato
+        if (Build.VERSION.SDK_INT >= 23) s.setOffscreenPreRaster(true);
+        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         web.addJavascriptInterface(new Bridge(), "LZ");
         web.setWebChromeClient(new WebChromeClient());

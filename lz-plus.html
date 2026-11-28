@@ -485,6 +485,10 @@
   .btn:not(.pri){background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
   .btn.pri:focus,body:not(.kbd) .btn.pri:hover{background:#fff;color:#14072A;box-shadow:0 0 0 .2rem rgba(255,255,255,.35),0 0 1.8rem rgba(var(--amb,120,50,210),.75)}
   .spot p{color:#CFC8E6}
+
+  /* Rendimiento: las filas fuera de pantalla no se dibujan */
+  .rows > .row{content-visibility:auto;contain-intrinsic-size:auto 22rem}
+  body.phone .rows > .row{contain-intrinsic-size:auto 17rem}
 </style>
 </head>
 <body>
@@ -961,7 +965,9 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
   let done = 0, yes = 0, asked = 0;
   const upd = () => { note.textContent = asked > done ? 'Revisando cuáles se pueden ver…' : done ? yes + (yes === 1 ? ' disponible' : ' disponibles') + (done < items.length ? ' de las revisadas' : '') : ''; };
   upd();
-  items.forEach((it, i) => watchCard(cards[i], () => { asked++; upd(); limit(() => isAvailable(it)).then((ok) => {
+  const near = (c) => { if (!c.isConnected) return false; const q = c.getBoundingClientRect(); return q.bottom > -250 && q.top < innerHeight + 250 && q.right > -innerWidth && q.left < innerWidth * 2; };
+  items.forEach((it, i) => watchCard(cards[i], function chk() { asked++; upd(); limit(() => near(cards[i]) ? isAvailable(it) : Promise.resolve('lejos')).then((ok) => {
+    if (ok === 'lejos') { asked--; upd(); if (cards[i].isConnected) watchCard(cards[i], chk); return; }
     done++; const card = cards[i];
     if (ok === true) { yes++; card.querySelector('.pi')?.append(el('span', 'ok-b', '✓ Disponible')); latTag(card, it); }
     else if (ok === false && card !== document.activeElement) {
@@ -1040,7 +1046,15 @@ function focusEl(e) {
   preloadRows(e.closest('.rows > .row'));
 }
 // Las filas de abajo se cargan antes de llegar a ellas (en la tele lenta, ▼ no encontraba a dónde ir)
+function trimRows(row) {
+  if (!row || !row.parentNode || !document.body.classList.contains('lite')) return;
+  const rows = [...row.parentNode.children], i = rows.indexOf(row);
+  rows.forEach((r, j) => { const far = Math.abs(j - i) > 5;
+    if (far === !!r._far) return; r._far = far;
+    r.querySelectorAll('.pi img').forEach((im) => { if (far && im.getAttribute('src')) { im.dataset.s = im.getAttribute('src'); im.removeAttribute('src'); } else if (!far && im.dataset.s) { im.src = im.dataset.s; delete im.dataset.s; } }); });
+}
 function preloadRows(row) {
+  trimRows(row);
   for (let r = row && row.nextElementSibling, n = 0; r && n < 2; r = r.nextElementSibling, n++) {
     if (r._go) { const f = r._go; r._go = null; if (rowIO) rowIO.unobserve(r); f(); }
   }
@@ -1079,14 +1093,27 @@ function rowReady(row) {
   focusEl(best);
 }
 function gap(a1, a2, b1, b2) { return a2 < b1 ? b1 - a2 : b2 < a1 ? a1 - b2 : 0; }
+// ◀ ▶ dentro de una fila: a la portada de junto directo (sin medir toda la pantalla en cada tecla)
+function stripNav(cur, dir) {
+  if (!cur.parentNode || !cur.parentNode.classList || !cur.parentNode.classList.contains('strip')) return false;
+  let n = dir === 'right' ? cur.nextElementSibling : cur.previousElementSibling;
+  while (n && !(n.matches(FOC) && visible(n))) n = dir === 'right' ? n.nextElementSibling : n.previousElementSibling;
+  if (!n) return false;
+  const v = $('v-' + view); if (v && v.contains(cur)) v._last = cur;
+  focusEl(n); return true;
+}
 function nav(dir) {
+  const cur0 = document.activeElement, sc0 = scope();
+  if (cur0 && cur0 !== document.body && cur0 !== pv && sc0.contains(cur0) && !cur0.closest('#rail')) {
+    if ((dir === 'up' || dir === 'down') && rowNav(cur0, dir)) return;
+    if ((dir === 'left' || dir === 'right') && stripNav(cur0, dir)) return;
+  }
   const cur = document.activeElement, list = cands(), sc = scope();
   if (!list.length) return;
   if (!cur || cur === document.body || !sc.contains(cur) || cur === pv) { const a = sc.querySelector('[data-auto]'); focusEl(a && visible(a) ? a : firstContent(list)); return; }
   // Del menú hacia la derecha: regresa a donde estabas en la pantalla
   if (cur.closest('#rail') && dir === 'right') { const v = $('v-' + view); const last = v && v._last; focusEl(last && visible(last) && v.contains(last) ? last : firstContent(list)); return; }
   // En el menú, ▲ ▼ solo recorren el menú (en orden, sin brincar al contenido); en las puntas se queda quieto
-  if ((dir === 'up' || dir === 'down') && !cur.closest('#rail') && rowNav(cur, dir)) return;
   if (cur.closest('#rail') && (dir === 'up' || dir === 'down')) {
     const navs = [...document.querySelectorAll('#rail .nav')].filter(visible), i = navs.indexOf(cur);
     const nx = navs[i + (dir === 'down' ? 1 : -1)];
@@ -1123,6 +1150,7 @@ function firstContent(list) {
   return list.find((e) => v && v.contains(e) && !e.closest('.srcs')) || list.find((e) => !e.closest('#rail')) || list[0];
 }
 const isText = (t) => t && t.tagName === 'INPUT' && !['button', 'checkbox', 'radio'].includes(t.type);
+let navAt = 0;
 document.addEventListener('mousemove', () => document.body.classList.remove('kbd'), {passive: true});
 document.addEventListener('keydown', (e) => {
   const k = e.key, c = e.keyCode;
@@ -1139,7 +1167,10 @@ document.addEventListener('keydown', (e) => {
   const dir = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'}[k];
   if (!dir) return;
   if (isText(e.target)) { const t = e.target; if (dir === 'left' && t.selectionStart > 0) return; if (dir === 'right' && t.selectionEnd < t.value.length) return; }
-  e.preventDefault(); nav(dir);
+  e.preventDefault();
+  // Flecha presionada: el foco avanza al ritmo que el aparato puede dibujar (no se acumulan teclas)
+  const now = performance.now(); if (e.repeat && now - navAt < (document.body.classList.contains('lite') ? 85 : 40)) return;
+  navAt = now; nav(dir);
 });
 // Números del control: marca 1-2 y te lleva al canal 12
 let numBuf = '', numT = null;
@@ -1363,16 +1394,19 @@ function setSpot(spot, it, now) {
     const bg = spot.querySelector('.bg');
     const url = fitImg(it.backdrop || it.poster, 'bg');
     bg.classList.add('fade');
-    const pre = new Image(); pre.onload = pre.onerror = () => { bg.style.backgroundImage = url ? 'url("' + url + '")' : ''; bg.classList.remove('fade'); }; pre.src = url || '';
-    if (!url) pre.onload();
+    const pre = new Image(), show = () => { if (spot._it !== it) return; bg.style.backgroundImage = url ? 'url("' + url + '")' : ''; bg.classList.remove('fade'); };
+    pre.onerror = show; pre.onload = () => { if (pre.decode) pre.decode().then(show, show); else show(); }; pre.src = url || '';
+    if (!url) show();
     const k = el('div', 'kick');
     [isNew(it) && 'NUEVO', TYPE_ES[it.type], it.year, it.rating && '★ ' + it.rating, it.genres?.slice(0, 2).join(' · ')].filter(Boolean).forEach((t) => k.append(el('span', null, t)));
     if (hasLat(it)) k.append(el('span', 'lat', 'Latino disponible'));
     const b = el('div', 'btns');
     if (it.type) b.append(btn('btn pri', '▶  Ver detalles', () => openDetail(it)));
+    const had = spot._in.contains(document.activeElement);
     spot._in.replaceChildren(k, titleEl(it, 'spot-logo'), el('p', null, it.overview || 'Sin descripción por ahora.'), b);
+    if (had && b.firstChild) b.firstChild.focus({preventScroll: true});   // estabas en el botón: no se pierde el foco al cambiar
   };
-  if (now) run(); else spotT = setTimeout(run, 260);
+  if (now) run(); else spotT = setTimeout(run, document.body.classList.contains('lite') ? 420 : 260);   // se cambia cuando te detienes, no en cada portada
 }
 
 // ---------------- Filas de carátulas ----------------
@@ -3662,7 +3696,10 @@ document.body.classList.toggle('notv', S.liveOn === false);   // TV en vivo: sol
 function applyScreen() { phoneMode(); const r = document.documentElement.style; r.setProperty('--ui', S.ui || 1); r.setProperty('--safe', (S.safe || 0) + 'vh'); }
 applyScreen();
 addEventListener('resize', phoneMode);
-if (NATIVE) document.body.classList.add('lite');
+// Modo ligero automático: teles/proyectores sencillos y computadoras con poca memoria. Las teles potentes van completas.
+const DEV_MEM = navigator.deviceMemory || 0, DEV_CPU = navigator.hardwareConcurrency || 0;
+const WEAK = NATIVE ? !(DEV_MEM >= 4 && DEV_CPU >= 8) : ((DEV_MEM && DEV_MEM <= 2) || (DEV_CPU && DEV_CPU <= 2));
+if (WEAK) document.body.classList.add('lite');
 if (S.cue) document.documentElement.style.setProperty('--cue', S.cue);
 clock(); setInterval(clock, 15000);
 // La TV arranca casi de inmediato (solo espera un instante a ver si hay intermediario)
