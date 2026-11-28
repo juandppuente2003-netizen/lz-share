@@ -864,7 +864,7 @@ async function detectProxy() {
   PROXY = null; PROXY_BASE = null; PROXY_FF = false; return false;
 }
 // Video convertido por el intermediario (FFmpeg): v = 'copy' (rápido) o 'h264' (convierte la imagen)
-const ffUrl = (u, h, v, t, au) => PROXY_BASE + '/lz-proxy/mp4?u=' + encodeURIComponent(u) + (h.ref ? '&r=' + encodeURIComponent(h.ref) : '') + (h.ua ? '&a=' + encodeURIComponent(h.ua) : '') + '&v=' + v + (t ? '&t=' + Math.floor(t) : '') + (au ? '&au=' + au : '');
+const ffUrl = (u, h, v, t, au, ad) => PROXY_BASE + '/lz-proxy/mp4?u=' + encodeURIComponent(u) + (h.ref ? '&r=' + encodeURIComponent(h.ref) : '') + (h.ua ? '&a=' + encodeURIComponent(h.ua) : '') + '&v=' + v + (t ? '&t=' + Math.floor(t) : '') + (au ? '&au=' + au : '') + (ad ? '&ad=' + ad : '');
 const px = (url, h = {}) => PROXY ? PROXY + '?u=' + encodeURIComponent(url) + (h.ref ? '&r=' + encodeURIComponent(h.ref) : '') + (h.ua ? '&a=' + encodeURIComponent(h.ua) : '') : url;
 const NO_CONN = () => PROXY || NATIVE ? 'El servidor no responde.' : 'El servidor no deja conectarse desde el navegador. Abre LZ-SHARE con el servidor intermedio (Ajustes → Servidor intermedio).';
 
@@ -2321,6 +2321,17 @@ function openVodMenu() {
     auds.forEach((a, i) => c2.append(btn('chip' + (i === cur ? ' on' : ''), audioName(a), () => { closePick(); vodFF ? ffReload(curTime(), i) : toFF(i); toast('Audio: ' + audioName(a)); })));
     s2.append(c2); sections.push(s2);
   }
+  // Sincronizar audio (si se oye antes o después que la imagen)
+  if (PROXY_FF && vodCur) {
+    const sa = el('div', 'msec'), ad = vodFF ? (vodFF.ad || 0) : 0;
+    sa.append(el('h3', null, 'Sincronizar audio' + (ad ? ' · ' + (ad > 0 ? '+' : '') + ad.toFixed(2) + ' s' : '')));
+    const setAd = (v) => { closePick(); v = Math.round(v * 4) / 4; if (!vodFF) toFF(0, v); else { vodFF.ad = v; ffReload(curTime()); }
+      toast(v ? 'Audio ' + (v > 0 ? 'atrasado ' : 'adelantado ') + Math.abs(v).toFixed(2) + ' s' : 'Audio sin ajuste'); };
+    const ca = el('div', 'chips');
+    ca.append(btn('chip', 'Se oye tarde: adelantar ¼ s', () => setAd(ad - 0.25)), btn('chip', 'Se oye antes: atrasar ¼ s', () => setAd(ad + 0.25)));
+    if (ad) ca.append(btn('chip', 'Quitar ajuste', () => setAd(0)));
+    sa.append(ca, el('span', 'note', 'Si la voz no coincide con la boca, ajústalo aquí. Tarda unos segundos en recargar.')); sections.push(sa);
+  }
   // Idioma, calidad y fuente
   const s3 = el('div', 'msec'); s3.append(el('h3', null, 'Idioma y calidad'));
   s3.append(optPicker(vodOpts, {cur: vodCur, failed: vodFailed, onPick: (s) => { closePick(); if (s === vodCur) return; vodResume = curTime(); const sess = ++vodSess; vodFailed.delete(s);
@@ -3055,13 +3066,13 @@ function ffReload(t, au) {
   vodFF.offset = Math.max(0, t || 0); if (au != null) vodFF.au = au;
   msg('Cargando…', null, true);
   video.onplaying = () => msg('');
-  video.src = ffUrl(vodFF.u, vodFF.h, vodFF.v, vodFF.offset, vodFF.au); video.play().catch(() => {});
+  video.src = ffUrl(vodFF.u, vodFF.h, vodFF.v, vodFF.offset, vodFF.au, vodFF.ad); video.play().catch(() => {});
   applySub(); syncFFBar(); showFFBar();
 }
 // Pasar un video que se ve directo a modo convertido (para poder elegir audio)
-function toFF(au) {
+function toFF(au, ad) {
   const s = vodCur; if (!s || !PROXY_FF) return;
-  const t = curTime(); vodFF = {u: s.url, h: hdrOf(s), v: 'copy', offset: 0, dur: vodInfo?.duration || 0, au: 0};
+  const t = curTime(); vodFF = {u: s.url, h: hdrOf(s), v: 'copy', offset: 0, dur: vodInfo?.duration || 0, au: 0, ad: ad || 0};
   ffReload(t, au);
 }
 async function afterStart(s, sess) {

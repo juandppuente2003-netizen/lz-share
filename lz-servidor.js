@@ -137,6 +137,12 @@ function mp4(req, res, q) {
   args.push('-i', target, '-map', '0:v:0', '-map', '0:a:' + au + '?', '-sn', '-dn');
   if (q.get('v') === 'h264') args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p', '-vf', "scale='min(1920,iw)':-2");
   else args.push('-c:v', 'copy');
+  // Audio parejo con la imagen: rellena huecos del audio original (evita que se vaya desfasando)
+  // y aplica el ajuste manual ad (segundos; + = el audio suena después, - = antes)
+  const ad = Math.max(-5, Math.min(5, parseFloat(q.get('ad') || '0') || 0)), af = ['aresample=async=1'];
+  if (ad > 0) af.push('adelay=' + Math.round(ad * 1000) + ':all=1');
+  else if (ad < 0) af.push('atrim=start=' + (-ad).toFixed(3), 'asetpts=PTS-STARTPTS');
+  args.push('-af', af.join(','), '-max_muxing_queue_size', '2048');
   args.push('-c:a', 'aac', '-ac', '2', '-b:a', '192k', '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', 'pipe:1');
   const p = spawn(FFMPEG, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let started = false, err = '';
