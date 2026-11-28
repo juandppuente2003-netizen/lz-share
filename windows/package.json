@@ -16,11 +16,35 @@
   "build": {
     "appId": "com.lzshare.windows",
     "productName": "LZ-SHARE",
-    "files": ["main.js", "lz-plus.html", "lz-servidor.js", "icon.png"],
-    "asarUnpack": ["node_modules/ffmpeg-static/**"],
-    "directories": { "output": "dist" },
+    "files": [
+      "main.js",
+      "lz-plus.html",
+      "lz-servidor.js",
+      "icon.png",
+      "preload.js",
+      "mpv-player.js"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "icon.png"
     },
     "nsis": {
@@ -31,6 +55,17 @@
       "shortcutName": "LZ-SHARE",
       "artifactName": "LZ-SHARE-Windows-instalador.exe"
     },
-    "portable": { "artifactName": "LZ-SHARE-Windows-portable.exe" }
+    "portable": {
+      "artifactName": "LZ-SHARE-Windows-portable.exe"
+    },
+    "extraResources": [
+      {
+        "from": "mpv",
+        "to": "mpv",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

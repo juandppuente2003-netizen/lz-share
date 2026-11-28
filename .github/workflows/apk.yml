@@ -87,6 +87,19 @@ jobs:
           cd windows
           npm install --no-audit --no-fund
 
+      # Reproductor mpv para la PC (como el reproductor nativo de la tele)
+      - name: Descargar reproductor mpv
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p windows/mpv
+          url=$(gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest -q '[.assets[] | select(.name | test("^mpv-x86_64-[0-9]{8}-git-.*\\.7z$"))][0].browser_download_url')
+          echo "mpv: $url"
+          curl -sSL "$url" -o mpv.7z
+          7z e mpv.7z -owindows/mpv mpv.exe -r -y
+          ls -la windows/mpv
+
       - name: Compilar instalador y versión portátil
         working-directory: windows
         run: npx electron-builder --win --publish never

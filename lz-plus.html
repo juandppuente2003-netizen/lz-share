@@ -561,6 +561,10 @@ const APP_VERSION = '__LZ_VERSION__'.indexOf('__') === 0 ? 'web' : '__LZ_VERSION
 const $ = (id) => document.getElementById(id);
 // Dentro de la app de Android TV existe window.LZ (reproductor nativo, salir, abrir en otra app)
 const NATIVE = !!(window.LZ && window.LZ.isNative && window.LZ.isNative());
+// En la app de Windows: reproductor mpv, que funciona como el de la tele (abre MKV/HEVC/Dolby directo, audio parejo)
+const PCMPV = !NATIVE && !!(window.LZPC && window.LZPC.play);
+const usesNative = () => NATIVE || (PCMPV && !(typeof S !== 'undefined' && S && S.pcPlayer === 'app'));
+const LZP = () => NATIVE ? window.LZ : window.LZPC;
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const btn = (cls, txt, fn) => { const b = el('button', cls, txt); b.type = 'button'; if (fn) b.onclick = fn; return b; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2041,7 +2045,7 @@ async function playVod(x, ep, startAt, pick) {
   // Reanudar: arranca directo con la versión que estabas viendo (sin buscar en todos los servidores)
   let fast = null;
   if (!pick && startAt > 20) { const w = watchOf(x); if (w && w.v && w.v.url && sameEp(w.ep, ep)) { fast = {...w.v}; vodItem.fast = true; } }
-  if (NATIVE) return nativeVod(x, ep, adds, type, id, startAt, pick, fast);
+  if (usesNative()) return nativeVod(x, ep, adds, type, id, startAt, pick, fast);
   const sess = ++vodSess;
   vodOpts = []; vodAll = []; vodFailed = new Set(); vodLabel = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   if (hls) { hls.destroy(); hls = null; }
@@ -2127,7 +2131,7 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   nativeLast = {id, type, opts: opts.slice(), x, ep};
   if (fast) {}
   else if (pick) { const i = opts.findIndex((o) => o.url === pick.url); if (i > 0) opts.unshift(opts.splice(i, 1)[0]); }
-  else opts = readyFilter(S.langOnly ? langFilter(opts) : opts);
+  else { const f = readyFilter(S.langOnly ? langFilter(opts) : opts); opts = PCMPV && f.length ? f.concat(opts.filter((o) => !f.includes(o))) : f; }   // en la PC las demás quedan de respaldo
   if (sess !== vodSess || $('pick').hidden) return;
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
   let sub = '', subLang = '';
@@ -2139,7 +2143,7 @@ async function nativeVod(x, ep, adds, type, id, startAt, pick, fast) {
   closePick();
   nativeSent = opts.slice(0, 30);
   if (ep) setTimeout(() => warmNext(x, ep), 20000);
-  window.LZ.play(JSON.stringify({title: label, ep: !!ep, sleepAt: sleepAt || 0, sub, subLang, audioLang: S.audioEs === false ? '' : 'es', start: Math.floor(startAt || 0), opts: opts.slice(0, 30).map((s) => {
+  LZP().play(JSON.stringify({title: label, ep: !!ep, sleepAt: sleepAt || 0, sub, subLang, audioLang: S.audioEs === false ? '' : 'es', start: Math.floor(startAt || 0), opts: opts.slice(0, 30).map((s) => {
     const h = s.behaviorHints?.proxyHeaders?.request || {};
     return {url: s.url, ref: h.Referer || h.referer || '', ua: h['User-Agent'] || h['user-agent'] || '', es: esAudio(s)};
   })}));
@@ -2158,10 +2162,10 @@ async function chooseAndPlay(x, ep, startAt) {
   const label = x.title + (ep ? ' · T' + ep.s + ' E' + ep.e : '');
   const body = el('div'); body.append(el('div', 'spin'), el('p', 'note', 'Buscando versiones en tus complementos…'));
   openPick(label, [body]);
-  const opts = (await gatherOpts(adds, type, id)).filter((s) => NATIVE || IS_IOS || playable(s));
+  const opts = (await gatherOpts(adds, type, id)).filter((s) => usesNative() || IS_IOS || playable(s));
   if ($('pick').hidden) return;
   if (!opts.length) { body.replaceChildren(el('p', 'note', 'Tus complementos no encontraron video para este título.')); return; }
-  if (NATIVE) nativeLast = {id, type, opts: opts.slice(), x, ep};
+  if (usesNative()) nativeLast = {id, type, opts: opts.slice(), x, ep};
   body.replaceChildren(optPicker(opts, {onPick: (s) => { closePick(); if (IS_IOS && !playable(s)) { toast('Ese formato se abre en VLC'); openExternal(s.url); return; } playVod(x, ep, startAt, s); }}));
   setTimeout(() => focusEl(body.querySelector('.opt') || body.querySelector('.chip')), 40);
 }
@@ -2173,7 +2177,7 @@ function markDead(x) {
 }
 window.lzFailed = () => { if (!vodItem) return;
   if (vodItem.fast) { const {x, ep} = vodItem, w = watchOf(x); if (w) w.v = null; toast('Esa versión ya no está; buscando otra…'); playVod(x, ep, w ? w.t : 0); return; } logErr('No abrió en la tele: ' + vodItem.x.title); if (DEBRID && DEBRID.st === 'bad') { toast('⚠️ ' + DEBRID.msg, 12000); return; }
-  if (nativeLast && nativeLast.opts.length && nativeLast.opts.every((o) => streamInfo(o).ready === false)) { toast('⏳ Esta película todavía no está lista en tu AllDebrid. Vuelve a intentar en unos minutos.', 10000); return; } markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); };
+  if (nativeLast && nativeLast.opts.length && nativeLast.opts.every((o) => streamInfo(o).ready === false)) { toast('⏳ Esta película todavía no está lista en tu AllDebrid. Vuelve a intentar en unos minutos.', 10000); return; } if (NATIVE) { markDead(vodItem.x); toast('Este título no se pudo reproducir; ya no se mostrará.'); } else toast('Ninguna versión abrió. Intenta en unos minutos o usa “Elegir idioma y calidad”.', 9000); };
 function vodAllFailed() {
   logErr('No abrió: ' + (vodItem ? vodItem.x.title + (vodItem.ep ? ' T' + vodItem.ep.s + 'E' + vodItem.ep.e : '') : '?') + ' (' + vodOpts.length + ' opciones)');
   if (DEBRID && DEBRID.st === 'bad') { msg('⚠️ ' + DEBRID.msg, [btn('btn pri', 'Regresar', exitFull)]); return; }
@@ -3458,6 +3462,13 @@ function buildSettings() {
       el('p', 'note', 'Para probar, abre en la TV: ' + (v || 'http://IP:8090') + '/prueba')]);
   }));
   bP.append(pi, pb2); if (!NATIVE) w.append(bP);
+  if (PCMPV) {
+    const bM = el('div', 'box'); bM.append(el('h2', 'disp', 'Reproductor en esta computadora'),
+      el('p', 'note', 'El reproductor de la PC funciona como el de la tele: abre todos los formatos (MKV, HEVC, Dolby) directo y con el audio siempre parejo. Teclas: Espacio pausa, ← → adelantar, A cambia audio, S subtítulos, O otra versión, Esc regresar.'));
+    const cm = el('div', 'chips');
+    [['mpv', 'Reproductor de la PC (recomendado)'], ['app', 'Dentro de la app (anterior)']].forEach(([v, n]) => cm.append(btn('chip' + ((S.pcPlayer || 'mpv') === v ? ' on' : ''), n, () => { S.pcPlayer = v; save(); cm.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c.textContent === n)); toast('Listo: ' + n); })));
+    bM.append(cm); w.append(bM);
+  }
   // TMDB
   const b3 = el('div', 'box'); b3.append(el('h2', 'disp', 'Carátulas en español (TMDB)'));
   b3.append(el('p', 'note', 'Gratis: crea una cuenta en themoviedb.org → Configuración → API, y copia la “Clave de la API (v3)”.'));
@@ -3664,7 +3675,7 @@ function sleepFire() {
   let n = 60; const txt = el('p', 'note', 'Se apaga en ' + n + ' s. ¿Sigues viendo?');
   const keep = btn('btn pri', 'Sigo viendo', () => { clearInterval(t); closePick(); setSleep(30); }); keep.dataset.auto = '1';
   const t = setInterval(() => { n--; txt.textContent = 'Se apaga en ' + n + ' s. ¿Sigues viendo?'; if (n <= 0) { clearInterval(t); closePick();
-    try { stopPlayback(); if (isFull()) exitFull(); } catch (e) {} if (NATIVE) window.LZ.exit(); else toast('Reproducción detenida por el temporizador 🌙', 8000); } }, 1000);
+    try { stopPlayback(); if (isFull()) exitFull(); if (PCMPV) window.LZPC.stop(); } catch (e) {} if (NATIVE) window.LZ.exit(); else toast('Reproducción detenida por el temporizador 🌙', 8000); } }, 1000);
   const bb = el('div', 'btns'); bb.append(keep);
   openPick('Temporizador para dormir', [txt, bb]);
 }

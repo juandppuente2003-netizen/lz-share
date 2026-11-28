@@ -1,6 +1,6 @@
 // LZ-SHARE para Windows: abre la app en su propia ventana y trae adentro
 // el intermediario y FFmpeg (ya no hace falta abrir INICIAR-LZ-SHARE.bat).
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -46,6 +46,8 @@ async function pickPort() {
   return 0;
 }
 process.env.LZ_EMBEDDED = '1';
+// Reproductor mpv (abre MKV/HEVC/Dolby directo, con el audio siempre parejo)
+try { require('./mpv-player.js')({ ipcMain, app, getWin: () => win, LOG }); } catch (e) { LOG('ERROR mpv', e && e.stack); ipcMain.on('mpv-ok', (ev) => { ev.returnValue = false; }); }
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // Solo una ventana de LZ-SHARE a la vez
@@ -62,6 +64,7 @@ async function createWindow() {
     width: 1600, height: 900, minWidth: 960, minHeight: 540,
     backgroundColor: '#07060E', title: 'LZ-SHARE', icon: path.join(__dirname, 'icon.png'),
     autoHideMenuBar: true, show: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   win.maximize();
   Menu.setApplicationMenu(null);
