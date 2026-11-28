@@ -56,9 +56,6 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);              // ignora el tamaño de letra del sistema (si no, la app se sale de la pantalla)
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
-        // Fluidez: la página se dibuja por adelantado al desplazarse y tiene prioridad en el aparato
-        if (Build.VERSION.SDK_INT >= 23) s.setOffscreenPreRaster(true);
-        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         web.addJavascriptInterface(new Bridge(), "LZ");
@@ -70,6 +67,14 @@ public class MainActivity extends Activity {
                 if (url.startsWith("file:")) return false;
                 if (url.startsWith("http:") || url.startsWith("https:")) { openExternal(url, null); return true; }
                 if (url.startsWith("vlc://")) { openExternal(url.substring(6), "video/*"); return true; }
+                return true;
+            }
+            // Si Android cierra la parte web (por falta de memoria mientras ves una película), la app se recupera sola en vez de cerrarse
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                try { ((android.view.ViewGroup) view.getParent()).removeView(view); } catch (Exception e) {}
+                try { view.destroy(); } catch (Exception e) {}
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() { public void run() { recreate(); } });
                 return true;
             }
         });
