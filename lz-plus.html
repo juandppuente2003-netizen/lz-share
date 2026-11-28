@@ -2049,7 +2049,7 @@ async function playVod(x, ep, startAt, pick) {
   pvMode = 'vod'; video.controls = true; $('yt').replaceChildren(); video.hidden = false;
   video.pause(); video.removeAttribute('src'); video.querySelectorAll('track').forEach((t) => t.remove());
   goFull(); msg('Buscando ' + vodLabel + '…', null, true);
-  let pending = adds.length, busy = false, playing = false; const vodT0 = Date.now();
+  let pending = adds.length, busy = false, playing = false, widened = false; const vodT0 = Date.now();
   if (fast && playable(fast)) { fast._p = 'unknown'; vodOpts.push(fast); msg('Reanudando…', null, true); setTimeout(() => pump(), 0); }
   const pump = () => {
     if (sess !== vodSess || busy || playing) return;
@@ -2061,6 +2061,12 @@ async function playVod(x, ep, startAt, pick) {
       if (o._p === 'pending' && Date.now() - vodT0 < 3000) { setTimeout(pump, 3050 - (Date.now() - vodT0)); return; }
     }
     if (!s && left.length && left.every((o) => o._p === 'pending')) return;
+    if (!s && !pending && !left.length && !widened) {
+      // Fallaron las elegidas (tu idioma, listas): antes de rendirse se prueban las demás versiones encontradas
+      widened = true;
+      const seen = new Set(vodOpts.map((o) => o.url)), more = vodAll.filter((o) => playable(o) && !seen.has(o.url) && (seen.add(o.url), true)).slice(0, 6);
+      if (more.length) { msg('Probando otras versiones…', null, true); more.forEach((o) => { o._p = o._p || 'unknown'; vodOpts.push(o); }); setTimeout(pump, 0); return; }
+    }
     if (!s) { if (!pending && !left.length) vodAllFailed(); return; }   // si todas siguen revisándose, se espera a la primera respuesta
     busy = true;
     msg('Abriendo opción ' + (vodOpts.indexOf(s) + 1) + (pending ? '' : ' de ' + vodOpts.length) + '…', null, true);
@@ -2176,12 +2182,13 @@ function vodAllFailed() {
     const best = vodAll[0], b2 = [btn('btn pri', '▶  Abrir en VLC', () => openExternal(best.url)), btn('btn', 'Elegir versión', () => openPick('Versiones', [optPicker(vodAll, {onPick: (s) => { closePick(); openExternal(s.url); }})])), btn('btn', 'Regresar', exitFull)];
     msg('Este título viene en un formato que el iPhone no reproduce (MKV). Ábrelo en VLC: se ve con audio y subtítulos.', b2); setTimeout(() => focusEl(b2[0]), 50); return;
   }
-  if (vodItem && vodOpts.length) markDead(vodItem.x);
-  const b = [];
+  const b = [];   // (ya no se esconde el título: la falla puede ser pasajera)
+  const again = vodItem && (() => { const {x, ep} = vodItem; playVod(x, ep); });
   if (vodOpts.length) b.push(btn('btn pri', 'Abrir en VLC', () => openExternal(vodOpts[0].url)), btn('btn', 'Elegir opción', openVodPick));
+  if (again) b.push(btn('btn', '⟳ Reintentar', again));
   b.push(btn('btn', 'Regresar', exitFull));
   msg(!vodOpts.length ? 'Tus complementos no encontraron un video que se pueda abrir para este título.'
-    : 'Ninguna de las ' + vodOpts.length + ' opciones abrió en el navegador.' + (PROXY ? ' Puede que vengan en un formato que el navegador no lee (MKV o HEVC). Ábrela en VLC.' : ' Conecta el servidor intermedio (Ajustes) o ábrela en VLC.'), b);
+    : 'Ninguna de las ' + vodOpts.length + ' opciones abrió aquí.' + (PROXY && !PROXY_FF ? ' En esta computadora no está activa la conversión de video (FFmpeg), y estas versiones vienen en un formato que el navegador no lee (MKV o HEVC). Ábrela en VLC o reinstala la app de Windows.' : PROXY ? ' Puede que los enlaces estén caídos o todavía no estén listos en AllDebrid. Reintenta en unos minutos, elige otra opción o ábrela en VLC.' : ' Conecta el servidor intermedio (Ajustes) o ábrela en VLC.'), b);
   setTimeout(() => focusEl(b[0]), 50);
 }
 // Lista de opciones con filtros de idioma y calidad (PC y TV)
