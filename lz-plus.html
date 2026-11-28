@@ -463,9 +463,32 @@
     .col{max-height:50vh}
     .spot h1{font-size:3rem}.det-in h1{font-size:3.2rem}
   }
+
+  /* ===== Diseño nuevo: color ambiental, barra de vidrio, enfoque suave ===== */
+  #amb{position:fixed;top:0;right:0;bottom:0;left:0;pointer-events:none;z-index:0;background-color:rgb(var(--amb,120,50,210));opacity:var(--ambk,.55);-webkit-mask-image:radial-gradient(ellipse 90% 75% at 70% 14%,#000 0%,rgba(0,0,0,.4) 42%,rgba(0,0,0,.12) 62%,transparent 82%);mask-image:radial-gradient(ellipse 90% 75% at 70% 14%,#000 0%,rgba(0,0,0,.4) 42%,rgba(0,0,0,.12) 62%,transparent 82%);transition:background-color .8s ease}
+  body.lite #amb{transition:background-color .5s ease!important}
+  body.noamb #amb,body.phone #amb{display:none}
+  #app{position:relative;z-index:1}
+  .spot .bg{background-color:transparent;-webkit-mask-image:linear-gradient(0deg,transparent 0%,rgba(0,0,0,.6) 22%,#000 48%);mask-image:linear-gradient(0deg,transparent 0%,rgba(0,0,0,.6) 22%,#000 48%)}
+  .spot::after{background:linear-gradient(90deg,rgba(7,6,14,.94) 0%,rgba(7,6,14,.78) 28%,rgba(7,6,14,.2) 62%,rgba(7,6,14,0));-webkit-mask-image:linear-gradient(0deg,transparent 0%,#000 45%);mask-image:linear-gradient(0deg,transparent 0%,#000 45%)}
+  body:not(.phone) #rail{top:.9rem;bottom:.9rem;left:.9rem;border-radius:1.6rem;border:1px solid rgba(255,255,255,.08);background:rgba(16,12,32,.6);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);box-shadow:0 1.2rem 3rem rgba(0,0,0,.55)}
+  body.lite:not(.phone) #rail{background:rgba(14,11,28,.93);-webkit-backdrop-filter:none;backdrop-filter:none}
+  body.mini:not(.phone) #rail{box-shadow:0 .6rem 2rem rgba(0,0,0,.35)}
+  body:not(.phone) main{margin-left:6.9rem}
+  body:not(.phone) .nav.on{background:rgba(163,59,255,.24);box-shadow:inset 0 0 0 1px rgba(214,31,240,.5),0 0 1.4rem rgba(163,59,255,.45);color:#fff}
+  body:not(.phone) .nav:focus{background:var(--grad);color:#fff;box-shadow:0 0 1.6rem rgba(163,59,255,.6)}
+  body:not(.phone) .card:focus .pi,body:not(.kbd):not(.phone) .card:hover .pi{transform:scale(1.08);box-shadow:0 0 0 .2rem rgba(255,255,255,.92),0 1rem 2.6rem rgba(var(--amb,120,50,210),.6),0 .8rem 2rem rgba(0,0,0,.5)}
+  body.lite .card:focus .pi{box-shadow:0 0 0 .22rem #fff}
+  body:not(.phone) .strip:focus-within .card:not(:focus) .pi{opacity:.62}
+  .card .pi{transition:transform .18s ease,box-shadow .18s ease,opacity .25s ease}
+  .btn{border-radius:2rem}
+  .btn:not(.pri){background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
+  .btn.pri:focus,body:not(.kbd) .btn.pri:hover{background:#fff;color:#14072A;box-shadow:0 0 0 .2rem rgba(255,255,255,.35),0 0 1.8rem rgba(var(--amb,120,50,210),.75)}
+  .spot p{color:#CFC8E6}
 </style>
 </head>
 <body>
+<div id="amb" aria-hidden="true"></div>
 <div id="app">
   <nav id="rail" aria-label="Menú principal">
     <div class="brand"><div class="blogo" role="img" aria-label="LZ-SHARE"></div></div>
@@ -944,7 +967,7 @@ function fillFiltered(row, items, mk, spot, firstToSpot) {
     else if (ok === false && card !== document.activeElement) {
       const strip = row._strip; if (strip._last === card) strip._last = null;
       card.remove();
-      if (!strip.querySelector('.card') && row.isConnected) row.remove();
+      if (!strip.querySelector('.card') && row.isConnected) { const nx = row.nextElementSibling; if (row._want && nx) nx._want = row._want; row.remove(); if (nx) rowReady(nx); }
     }
     upd();
   }); }));
@@ -1014,6 +1037,46 @@ function focusEl(e) {
   e.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: bh});
   const row = e.closest('.view.cat .rows .row');   // en portadas, la fila elegida queda arriba
   if (row) row.scrollIntoView({block: 'start', behavior: bh});
+  preloadRows(e.closest('.rows > .row'));
+}
+// Las filas de abajo se cargan antes de llegar a ellas (en la tele lenta, ▼ no encontraba a dónde ir)
+function preloadRows(row) {
+  for (let r = row && row.nextElementSibling, n = 0; r && n < 2; r = r.nextElementSibling, n++) {
+    if (r._go) { const f = r._go; r._go = null; if (rowIO) rowIO.unobserve(r); f(); }
+  }
+}
+// ▲ ▼ entre filas de portadas: siempre a la fila de junto, en orden (no a lo que quede más cerca en pantalla)
+function rowNav(cur, dir) {
+  const row = cur.closest('.rows > .row'); if (!row || !cur.closest('.strip')) return false;
+  const rows = [...row.parentNode.children].filter((r) => r.classList.contains('row') && !r.hidden), i = rows.indexOf(row);
+  if (i < 0) return false;
+  const r0 = cur.getBoundingClientRect(), cx = r0.left + r0.width / 2, step = dir === 'down' ? 1 : -1;
+  for (let j = i + step; j >= 0 && j < rows.length; j += step) {
+    const rw = rows[j], cs = [...rw.querySelectorAll(FOC)].filter(visible);
+    if (!cs.length) {
+      if (rw.querySelector('.sk')) {   // todavía cargando: se espera ahí y se entra en cuanto aparezca
+        preloadRows(rows[j - 1] || row); if (rw._go) { const f = rw._go; rw._go = null; if (rowIO) rowIO.unobserve(rw); f(); }
+        rw._want = {from: cur, x: cx}; rw.scrollIntoView({block: dir === 'down' ? 'end' : 'start', behavior: 'auto'});
+        return true;
+      }
+      continue;
+    }
+    const st = rw.querySelector('.strip'), last = st && st._last;
+    let best = last && cs.includes(last) && (() => { const q = last.getBoundingClientRect(); return q.left >= 0 && q.right <= innerWidth; })() ? last : null;
+    if (!best) { let bd = Infinity; for (const c of cs) { const q = c.getBoundingClientRect(), dx = Math.abs(q.left + q.width / 2 - cx); if (dx < bd) { bd = dx; best = c; } } }
+    if ($('v-' + view)?.contains(cur)) $('v-' + view)._last = cur;
+    focusEl(best); return true;
+  }
+  return dir === 'down';   // abajo de la última fila: se queda quieto; arriba de la primera: sube al encabezado
+}
+// Una fila que estabas esperando ya cargó: se entra a ella (si no te moviste)
+function rowReady(row) {
+  const w = row._want; if (!w) return; row._want = null;
+  const ae = document.activeElement; if (ae !== w.from && ae && ae !== document.body) return;
+  if (!row.isConnected) { const nx = w.next; if (nx && nx.isConnected) { nx._want = w; } return; }
+  const cs = [...(row._strip || row).querySelectorAll(FOC)].filter(visible); if (!cs.length) return;
+  let best = cs[0], bd = Infinity; for (const c of cs) { const q = c.getBoundingClientRect(), dx = Math.abs(q.left + q.width / 2 - w.x); if (dx < bd) { bd = dx; best = c; } }
+  focusEl(best);
 }
 function gap(a1, a2, b1, b2) { return a2 < b1 ? b1 - a2 : b2 < a1 ? a1 - b2 : 0; }
 function nav(dir) {
@@ -1023,6 +1086,7 @@ function nav(dir) {
   // Del menú hacia la derecha: regresa a donde estabas en la pantalla
   if (cur.closest('#rail') && dir === 'right') { const v = $('v-' + view); const last = v && v._last; focusEl(last && visible(last) && v.contains(last) ? last : firstContent(list)); return; }
   // En el menú, ▲ ▼ solo recorren el menú (en orden, sin brincar al contenido); en las puntas se queda quieto
+  if ((dir === 'up' || dir === 'down') && !cur.closest('#rail') && rowNav(cur, dir)) return;
   if (cur.closest('#rail') && (dir === 'up' || dir === 'down')) {
     const navs = [...document.querySelectorAll('#rail .nav')].filter(visible), i = navs.indexOf(cur);
     const nx = navs[i + (dir === 'down' ? 1 : -1)];
@@ -1268,10 +1332,34 @@ function makeSpot() {
   s._in = i; return s;
 }
 let spotT;
+
+// Color ambiental: el fondo toma el color de la portada en la que estás
+const AMB = {};
+function ambOf(it) {
+  const src = it && (it.poster || it.backdrop), key = src || (it && it.title) || '';
+  const hue = () => { let x = 0; for (const ch of String(it && it.title || 'LZ')) x = (x * 31 + ch.charCodeAt(0)) % 360; const s = .6, l = .45, a = s * Math.min(l, 1 - l), f = (n) => { const k = (n + x / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); }; return [f(0), f(8), f(4)]; };
+  if (AMB[key]) return Promise.resolve(AMB[key]);
+  if (!src) return Promise.resolve(AMB[key] = hue());
+  return new Promise((res) => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    const done = (c) => { AMB[key] = c; res(c); };
+    im.onload = () => { try {
+      const c = document.createElement('canvas'); c.width = 8; c.height = 12; const x = c.getContext('2d'); x.drawImage(im, 0, 0, 8, 12);
+      const d = x.getImageData(0, 0, 8, 12).data; let r = 0, g = 0, b = 0, w = 0;
+      for (let i = 0; i < d.length; i += 4) { const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]), sat = mx - mn, wt = sat * sat + 40; r += d[i] * wt; g += d[i + 1] * wt; b += d[i + 2] * wt; w += wt; }
+      r /= w; g /= w; b /= w; const m = Math.max(r, g, b, 1), k = 215 / m;   // misma intensidad para todas: color, no brillo
+      done([r, g, b].map((v) => Math.round(Math.min(255, v * k))));
+    } catch (e) { done(hue()); } };
+    im.onerror = () => done(hue());
+    im.src = String(fitImg(src, 'poster') || src).replace(/\/t\/p\/w\d+\//, '/t/p/w92/');
+  });
+}
+let ambFor = null;
+function setAmb(it) { ambFor = it; ambOf(it).then((c) => { if (ambFor === it) document.body.style.setProperty('--amb', c.join(',')); }); }
 function setSpot(spot, it, now) {
   clearTimeout(spotT);
   const run = () => {
-    if (spot._it === it) return; spot._it = it;
+    if (spot._it === it) return; spot._it = it; setAmb(it);
     const bg = spot.querySelector('.bg');
     const url = fitImg(it.backdrop || it.poster, 'bg');
     bg.classList.add('fade');
@@ -1524,7 +1612,8 @@ function quickLoader(key, real) {
   return f;
 }
 function lazyRow(row, loader, spot, first) {
-  if (first || !rowIO) return fillRow(row, loader, spot, first);
+  const idx = row.parentNode ? [...row.parentNode.children].indexOf(row) : 0;
+  if (first || !rowIO || idx < 3) return fillRow(row, loader, spot, first);   // las 3 primeras filas cargan de inmediato
   row._go = () => fillRow(row, loader, spot, false); rowIO.observe(row);
 }
 async function fillRow(row, loader, spot, firstToSpot) {
@@ -1536,12 +1625,13 @@ async function fillRow(row, loader, spot, firstToSpot) {
         const same = nw.slice(0, 12).map(keyOf).join() === items.slice(0, 12).map(keyOf).join(); if (same) return;
         const f2 = () => Promise.resolve(nw); if (loader.pager) f2.pager = loader.pager; fillRow(row, f2, spot, false); }).catch(() => {});
     }
-    if (!items.length) { row.remove(); return []; }
+    if (!items.length) { const nx = row.nextElementSibling; if (row._want && nx) { nx._want = row._want; preloadRows(row); } row.remove(); if (nx) setTimeout(() => rowReady(nx), 0); return []; }
     const title = (row.querySelector('h3') || {}).firstChild ? row.querySelector('h3').firstChild.textContent : '';
     const shown = items.slice(0, ROW_MAX()), more = items.length > shown.length || loader.pager ? moreCard(title, items, loader.pager) : null;
-    if (filterOn()) { fillFiltered(row, shown, (it) => mediaCard(it, spot), spot, firstToSpot); if (more) row._strip.append(more); return items; }
+    if (filterOn()) { fillFiltered(row, shown, (it) => mediaCard(it, spot), spot, firstToSpot); if (more) row._strip.append(more); rowReady(row); return items; }
     row._strip.replaceChildren(...shown.map((it) => mediaCard(it, spot)));
     if (more) row._strip.append(more);
+    rowReady(row);
     if (firstToSpot && spot && !spot._it) setSpot(spot, items[0], true);
     const ae = document.activeElement;
     if (row.closest('.view.on') && $('det').hidden && !isFull() && $('pick').hidden && (pendingFocus === view || !ae || ae === document.body) && (!ae || ae === document.body || ae.closest('#rail') || ae.closest('.spot'))) {
